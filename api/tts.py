@@ -1533,17 +1533,28 @@ MONEYLIFEPOV_AND_QUIETCAPITAL_MASTER_BLUEPRINT = """
 === MASTER STORYTELLING ENGINE: @MoneyLifePOV & @QuietCapitalUSA IMMERSIVE POV STYLE ===
 1. VIEWER IMMERSION ("JO USER VIDEO DEKHE USEY LAGEY WOH KHUD HAI"):
    - Write in an addictive, intimate, hyper-relatable POV storytelling voice modeled directly after YouTube channels @MoneyLifePOV ("Money Life POV") and @QuietCapitalUSA ("Quiet Capital").
-   - Make the viewer feel like THEY are the quiet, underestimated protagonist living every single scene firsthand:
-     * Everyone around them (coworkers, bosses, brothers-in-law, loud friends, neighbors) judges them by their modest surface appearance—an older paid-off car (e.g. 2012 Toyota Camry or Honda Civic), a plain $18 crewneck sweater, a home-packed lunch, a quiet apartment—assuming they are broke or falling behind.
-     * Meanwhile, behind closed doors, they have quietly built massive financial freedom, a $400,000–$1,200,000+ investment portfolio, paid-off assets, or cash-flowing property without owing a single dollar to anyone.
-2. VISUAL MICRO-SCENES EVERY 3 TO 4 SECONDS (7–9 WORDS PER BEAT):
+   - Make the viewer feel like THEY are the quiet, underestimated protagonist living every single scene firsthand.
+   - The opening scene, environment, characters, and props MUST be 100% custom-tailored to the SPECIFIC topic and premise!
+
+2. ABSOLUTE BAN ON REPETITIVE CLICHÉS & COPY-PASTE TROPES:
+   - FORBIDDEN: Do NOT mention "2012 Toyota Camry", "2014 Honda Civic", "faded paint job", "brother-in-law Mark", "coworker Dave", "gravel driveway", or "financed $900 watch". These are tired clichés and are strictly banned!
+   - Every single video script MUST feature a completely unique, fresh opening scene, new specific characters, unique dialogue, and an environment directly matching the chosen topic.
+
+3. DYNAMIC TOPIC-ANCHORED SCENE CRAFTING:
+   - Carefully analyze every keyword in the topic title. If the topic mentions:
+     * "Friends think you're unemployed": The scene MUST start with real friends (e.g. coffee shop, casual diner, group chat, living room hangout) reacting to your perceived lack of a traditional 9-to-5 job, pitying you, or offering unsolicited job leads.
+     * "Trading / Market": The story MUST depict authentic trading details—pre-market prep, candlestick charts, liquidity sweeps, disciplined risk-to-reward ratio, execution, patience, closing the laptop before noon, and emotional control vs gambling.
+     * "Investing / Real Estate / Tech / Business": The scenes must feature the real environments of that specific world—not generic office parking lots!
+
+4. VISUAL MICRO-SCENES EVERY 3 TO 4 SECONDS (7–9 WORDS PER BEAT):
    - Every single sentence or clause (every 3 to 4 seconds of speech) MUST depict a concrete, visible physical action, real-world object, facial expression, setting, or exact dollar number that can be drawn on screen!
-   - NEVER write boring textbook lectures or abstract filler. Instead of saying "Many people suffer from lifestyle inflation," write: "Your coworker leans across the breakroom table, tapping his financed nine-hundred-dollar watch while complaining that his checking account is down to forty-two dollars before Friday."
-3. SIGNATURE 4-ACT @MoneyLifePOV / @QuietCapitalUSA NARRATIVE ARC:
-   - ACT 1 (Cold-Open Hook): Drop immediately into a vivid everyday scene of social contrast—a parking lot, office breakroom, restaurant bill, or family dinner—where someone looks down on your quiet lifestyle while having no idea what your bank/brokerage screen actually says.
-   - ACT 2 (The Quiet System & Daily Contrast): Show the day-to-day reality—how loud spenders drown in $850 car notes, credit card minimums, and 2:00 AM anxiety to impress strangers, while you quietlystack cash, automate investments, and buy back your time month after month with exact dollar math.
-   - ACT 3 (The Turning Point / Undeniable Reveal): Deliver a deeply satisfying, realistic turning point where the truth quietly surfaces (walking away from a toxic job when dividends pass your salary, owning the building someone comes to rent, or staying completely unbothered during layoffs while big spenders panic).
-   - ACT 4 (The Quiet Wealth Mindset Takeaway): Close with calm, grounded psychological truths about stealth wealth, peace of mind over applause, and owning your life.
+   - NEVER write boring textbook lectures, abstract advice, or generic filler. Show, don't tell!
+
+5. SIGNATURE 4-ACT NARRATIVE ARC:
+   - ACT 1 (Cold-Open Hook): Drop immediately into an ultra-specific, vivid everyday scene matching the topic title where external expectations clash with your quiet reality.
+   - ACT 2 (The Hidden Reality & Daily Contrast): Show the day-to-day discipline, exact routines, numbers, and systems you quietly execute while outsiders have no idea how it works.
+   - ACT 3 (The Turning Point / Undeniable Moment): Deliver a deeply satisfying, realistic moment of truth or realization where the outcome of your quiet discipline becomes crystal clear.
+   - ACT 4 (The Psychological Truth): Close with grounded, memorable truths about freedom, calm conviction, and owning your time over seeking external validation.
 """
 
 
@@ -2050,11 +2061,11 @@ SCRIPT_TYPE_INSTRUCTIONS = {
         "with a vivid 3–4 second visual example, and keep the viewer glued until the final fact."
     ),
     "wealth_story": (
-        "SCRIPT FORMAT — @MoneyLifePOV & @QuietCapitalUSA STEALTH WEALTH & MONEY PSYCHOLOGY POV STORY TYPE: "
-        "Write in the exact viral POV storytelling style of @MoneyLifePOV and @QuietCapitalUSA! "
-        "Make the viewer feel like THEY are the quiet, underestimated protagonist living the story ('You pull into the parking lot...', "
-        "'Your coworkers think you are broke because...', 'Nobody knows your brokerage account just crossed...'). "
-        "Show exact incomes, monthly expenses, the trap of loud fake wealth vs quiet compounding freedom, social contrast at work/dinners, "
+        "SCRIPT FORMAT — IMMERSIVE POV STORY & FINANCIAL REALISM TYPE: "
+        "Write in the viral second-person POV storytelling style! "
+        "Make the viewer feel like THEY are living the exact story described in the topic title. "
+        "Every scene, setting, interaction, and conflict MUST be custom-built around the specific topic (no generic copy-paste tropes). "
+        "Show exact dollar numbers, realistic daily routines, the quiet discipline behind real success, social contrasts with outsiders, "
         "and an undeniable turning point, with a concrete visual action in every 3–4 second sentence."
     ),
     "mystery_crime": (
@@ -2257,6 +2268,10 @@ Target Total Video Voiceover Duration: {dur_mins:g} Minutes (~{target_total_word
 {script_type_block}
 {MONEYLIFEPOV_AND_QUIETCAPITAL_MASTER_BLUEPRINT}
 {yt_ref_block}
+CRITICAL ORIGINALITY & TOPIC FIDELITY MANDATE:
+- The script MUST be 100% custom-written from scratch for the exact topic: "{topic}".
+- Read every single word of "{topic}" and build every scene, character interaction, and dilemma directly around this exact premise.
+- DO NOT use generic stock templates. All characters, locations, dialogue, props, and situations must be completely fresh, unique, and true to "{topic}"!
 STRICT NARRATOR-ONLY & 3–4 SECOND VISUAL BEAT RULES:
 - Output ONLY the exact spoken words the narrator says out loud.
 - NEVER include titles, headings, "Part 1", "Act 1", stage directions, [music], [pause], bullet points, or asterisks (**).
