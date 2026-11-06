@@ -5058,7 +5058,7 @@
         }
       } catch (e) {}
 
-      if (!window.isIsolatedNewVideoTab && typeof window.restoreViralTopicsAndQueueState === 'function') {
+      if (typeof window.restoreViralTopicsAndQueueState === 'function') {
         window.restoreViralTopicsAndQueueState();
       }
 
@@ -7076,13 +7076,8 @@
 
         const shouldApplyExpandedCloudWorkspace =
           !window.isIsolatedNewVideoTab &&
-          (
-            cloudWs.wordSyncedV9 ||
-            topCloudItem.wordSyncedV9 ||
-            syncedScript.length > curDomScript.length + 100 ||
-            syncedPromptsText.length > curDomPrompts.length + 200 ||
-            (syncedVoUrl && syncedVoDuration > (Number(voiceoverDuration) || 0) + 20)
-          );
+          !currentHistoryId &&
+          Boolean(syncedScript && syncedScript.length > 200 && curDomScript.length === 0);
 
         if (shouldApplyExpandedCloudWorkspace) {
           if (syncedScript && syncedScript.length >= curDomScript.length) {
@@ -11055,6 +11050,14 @@ If this video helped you, subscribe to our channel and share it with a friend wh
         }
         await renderHistorySidebar(null);
       }
+
+      // Keep discovered 5 viral topics visible & refreshed on the New Video page so user can choose which topic to create!
+      if (Array.isArray(window.discoveredViralTopicsList) && window.discoveredViralTopicsList.length > 0) {
+        const wrap = document.getElementById('viralTopicsResultWrap');
+        if (wrap) wrap.style.display = 'block';
+        if (typeof renderViralTopicsCardsGrid === 'function') renderViralTopicsCardsGrid();
+        if (typeof updateSelectedTopicsQueueBarUI === 'function') updateSelectedTopicsQueueBarUI();
+      }
     };
 
     // ================= 1-CLICK GEMINI ULTRA AUTO-IMAGE GENERATOR BOT BRIDGE =================
@@ -11847,7 +11850,7 @@ If this video helped you, subscribe to our channel and share it with a friend wh
         window.lastYoutubeResearchBanner = st.lastYoutubeResearchBanner || '';
 
         if (window.discoveredViralTopicsList.length > 0) {
-          if (wrap) wrap.style.display = (st.topicsWrapVisible === false) ? 'none' : 'block';
+          if (wrap) wrap.style.display = 'block';
           renderViralTopicsCardsGrid();
           updateSelectedTopicsQueueBarUI();
         }
@@ -11906,7 +11909,7 @@ If this video helped you, subscribe to our channel and share it with a friend wh
       }
     }
 
-    window.toggleViralTopicInQueue = function(topicIdx) {
+    window.toggleViralTopicInQueue = async function(topicIdx) {
       if (!Array.isArray(window.selectedViralTopicQueue)) {
         window.selectedViralTopicQueue = [];
       }
@@ -11914,8 +11917,24 @@ If this video helped you, subscribe to our channel and share it with a friend wh
       // STRICT SINGLE-TOPIC SELECTION: only 1 topic can be selected at a time!
       if (existingPos >= 0) {
         window.selectedViralTopicQueue = [];
+        window.currentActiveTopicTitle = '';
+        const sTopicEl = document.getElementById('scriptTopicInput');
+        if (sTopicEl) sTopicEl.value = '';
       } else {
         window.selectedViralTopicQueue = [topicIdx];
+        const tObj = (window.discoveredViralTopicsList || [])[topicIdx];
+        if (tObj && tObj.title) {
+          // If previous video or scenes or a different topic script is in the workspace, clean it so no mixup occurs!
+          const curScript = (document.getElementById('ttsScriptInput') || {}).value || '';
+          const hasOldWork = Boolean(currentVideoBlob || voiceoverFile || (selectedScenes && selectedScenes.length > 0) || (curScript.length > 100 && window.lastGeneratedScriptTopic && window.lastGeneratedScriptTopic !== String(tObj.title).trim().toLowerCase()));
+          if (hasOldWork) {
+            await window.startNewVideoPage();
+            window.selectedViralTopicQueue = [topicIdx];
+          }
+          window.currentActiveTopicTitle = tObj.title;
+          const sTopicEl = document.getElementById('scriptTopicInput');
+          if (sTopicEl) sTopicEl.value = tObj.title;
+        }
       }
       window.completedViralQueuePositions = [];
       window.nextPendingQueuePos = 0;
@@ -11924,17 +11943,8 @@ If this video helped you, subscribe to our channel and share it with a friend wh
       if (nextBtn) nextBtn.style.display = 'none';
       window.closeNextVideoReadyPopup();
 
-      // Auto-fill #scriptTopicInput with the selected topic so it is immediately ready!
-      if (window.selectedViralTopicQueue.length > 0) {
-        const firstIdx = window.selectedViralTopicQueue[0];
-        const firstObj = window.discoveredViralTopicsList[firstIdx];
-        if (firstObj && firstObj.title) {
-          window.currentActiveTopicTitle = firstObj.title;
-          const sTopicEl = document.getElementById('scriptTopicInput');
-          if (sTopicEl) sTopicEl.value = firstObj.title;
-        }
-      }
-
+      const wrap = document.getElementById('viralTopicsResultWrap');
+      if (wrap) wrap.style.display = 'block';
       renderViralTopicsCardsGrid();
       updateSelectedTopicsQueueBarUI();
       window.saveViralTopicsAndQueueState();
@@ -12351,8 +12361,25 @@ STRICT RULES:
     }
 
     window.startFullAutoPipelineForTopic = async function(topicIdx) {
-      const tObj = window.discoveredViralTopicsList[topicIdx];
+      const tObj = (window.discoveredViralTopicsList || [])[topicIdx];
       if (!tObj || !tObj.title) return;
+
+      // Cleanly reset the workspace as a fresh New Video page so Video #2 has 0% leftover from Video #1!
+      await window.startNewVideoPage();
+
+      // Set this topic as the active selected topic
+      window.selectedViralTopicQueue = [topicIdx];
+      window.currentActiveTopicTitle = tObj.title;
+      const sTopicEl = document.getElementById('scriptTopicInput');
+      if (sTopicEl) sTopicEl.value = tObj.title;
+
+      // Keep 5 topics visible and update UI cards
+      const wrap = document.getElementById('viralTopicsResultWrap');
+      if (wrap) wrap.style.display = 'block';
+      if (typeof renderViralTopicsCardsGrid === 'function') renderViralTopicsCardsGrid();
+      if (typeof updateSelectedTopicsQueueBarUI === 'function') updateSelectedTopicsQueueBarUI();
+      if (typeof window.saveViralTopicsAndQueueState === 'function') window.saveViralTopicsAndQueueState();
+
       window.currentQueueVideoIndex = 1;
       window.currentQueueTotalVideos = 1;
       await executeFullAutoPipelineForTopicString(tObj.title, 1, 1);
@@ -12431,6 +12458,15 @@ STRICT RULES:
       if (nextBtn) nextBtn.style.display = 'none';
       window.waitingForNextVideoPermission = false;
       window.fullAutoPipelineCancelled = false;
+
+      // Cleanly reset video workspace if previous video, scenes, or old script exist so Video #2 never mixes with Video #1!
+      const curScript = (document.getElementById('ttsScriptInput') || {}).value || '';
+      const hasOldWork = Boolean(currentVideoBlob || voiceoverFile || (selectedScenes && selectedScenes.length > 0) || (curScript.length > 100 && window.lastGeneratedScriptTopic && window.lastGeneratedScriptTopic !== String(topicTitle).trim().toLowerCase()));
+      if (hasOldWork) {
+        await window.startNewVideoPage();
+        window.selectedViralTopicQueue = [tIdx];
+      }
+
       window.currentQueueTotalVideos = 1;
       window.currentQueueVideoIndex = 1;
       window.currentActiveTopicTitle = topicTitle;
@@ -12438,6 +12474,8 @@ STRICT RULES:
       const sTopicEl = document.getElementById('scriptTopicInput');
       if (sTopicEl) sTopicEl.value = topicTitle;
 
+      const wrap = document.getElementById('viralTopicsResultWrap');
+      if (wrap) wrap.style.display = 'block';
       renderViralTopicsCardsGrid();
       updateSelectedTopicsQueueBarUI();
       window.saveViralTopicsAndQueueState();
@@ -12501,6 +12539,16 @@ STRICT RULES:
           ensuredDiskSaveScenes.clear();
           voiceoverFile = null;
           if (currentVoiceUrl) { try { URL.revokeObjectURL(currentVoiceUrl); } catch (e) {} } currentVoiceUrl = null; voiceoverDuration = 0;
+          currentVideoBlob = null;
+          currentVideoMeta = null;
+          const vPrev = document.getElementById('videoPreview');
+          if (vPrev) { try { vPrev.pause(); } catch(e){} vPrev.src = ''; }
+          const resSec = document.getElementById('videoResult');
+          if (resSec) resSec.style.display = 'none';
+          const vAud = document.getElementById('voiceAudioPreview');
+          if (vAud) { try { vAud.pause(); } catch(e){} vAud.src = ''; }
+          const vReady = document.getElementById('voiceReadyBox');
+          if (vReady) vReady.style.display = 'none';
           document.getElementById('generatedPromptsBox').value = '';
           updateFullAutoPipelineUI(6, `🤖 ${qPrefix}Step 1/4: Writing High-Retention YouTube Viral Script for "${topicTitle}" (~${targetMins} mins)...`, true);
           fullScript = await writeViralScriptViaChatGptOrFallback(topicTitle, targetMins);
