@@ -1290,42 +1290,42 @@
 </head>
 <body>
 
-  <!-- ================= 1. NAME-BASED ISOLATED USER LOGIN OVERLAY ================= -->
+  <!-- ================= 1. GMAIL-BASED ISOLATED USER LOGIN OVERLAY ================= -->
   <div class="login-overlay" id="loginOverlay">
-    <div class="login-card" style="text-align:center; max-width:440px; width:92%;">
+    <div class="login-card" style="text-align:center; max-width:460px; width:92%;">
       <div class="login-logo">🎬</div>
-      <h2>Video Studio (Local & Cloud)</h2>
-      <p class="sub" id="loginSubtitleText" style="margin-bottom:16px;">Apna <b>Name</b> likh kar login karein — har user ka apna alag workspace, history aur settings hain!</p>
+      <h2>Video Studio (Gmail Login)</h2>
+      <p class="sub" id="loginSubtitleText" style="margin-bottom:16px;">Apni <b>Gmail ID</b> se login karein — Har user ka apna 100% alag workspace, history, viral topics aur settings hain!</p>
 
       <div class="login-error" id="loginError" style="text-align:left; line-height:1.55; display:none;"></div>
       <div id="pendingApprovalBox" style="display:none;"></div>
 
       <div style="margin-bottom:14px; text-align:left;">
-        <label style="display:block; font-size:12.5px; font-weight:800; color:#94a3b8; margin-bottom:6px; text-transform:uppercase; letter-spacing:0.6px;">👤 Enter Your Name:</label>
+        <label style="display:block; font-size:12.5px; font-weight:800; color:#94a3b8; margin-bottom:6px; text-transform:uppercase; letter-spacing:0.6px;">✉️ Enter Your Gmail Address:</label>
         <input
-          type="text"
+          type="email"
           id="userNameLoginInput"
-          placeholder="e.g. Abdul Rafay, Shahbaz..."
-          autocomplete="off"
+          placeholder="e.g. abdulrafay40023@gmail.com"
+          autocomplete="email"
           onkeydown="if(event.key==='Enter'){ event.preventDefault(); window.handleNameLogin(); }"
           style="width:100%; padding:13px 15px; border-radius:12px; background:#090d16; border:1.5px solid #334155; color:#f8fafc; font-size:15px; font-weight:700; outline:none; box-sizing:border-box;"
         />
       </div>
 
-      <button class="google-login-btn" id="googleLoginBtn" onclick="window.handleNameLogin()" style="background:linear-gradient(135deg,#22c55e,#16a34a); color:#fff; border:none; justify-content:center; font-size:15px; font-weight:800; padding:13px 20px;">
-        <span>🚀 Enter My Workspace</span>
+      <button class="google-login-btn" id="googleLoginBtn" onclick="window.handleNameLogin()" style="background:linear-gradient(135deg,#22c55e,#16a34a); color:#fff; border:none; justify-content:center; font-size:15px; font-weight:800; padding:13px 20px; width:100%; cursor:pointer;">
+        <span>🚀 Login with Gmail & Enter Workspace</span>
       </button>
 
       <div style="margin-top:14px; padding-top:12px; border-top:1px solid #1e293b;">
-        <div style="font-size:11.5px; color:#94a3b8; margin-bottom:8px; font-weight:700;">⚡ Quick Switch User Profile:</div>
+        <div style="font-size:11.5px; color:#94a3b8; margin-bottom:8px; font-weight:700;">⚡ Quick 1-Click Login:</div>
         <div style="display:flex; gap:7px; justify-content:center; flex-wrap:wrap;">
-          <button type="button" onclick="window.handleNameLogin('Abdul Rafay')" style="padding:6px 12px; border-radius:8px; background:rgba(34,197,94,0.14); border:1px solid rgba(34,197,94,0.4); color:#4ade80; font-size:12px; font-weight:700; cursor:pointer;">👤 Abdul Rafay (Admin)</button>
-          <button type="button" onclick="window.handleNameLogin('Shahbaz')" style="padding:6px 12px; border-radius:8px; background:rgba(56,189,248,0.14); border:1px solid rgba(56,189,248,0.4); color:#38bdf8; font-size:12px; font-weight:700; cursor:pointer;">👤 Shahbaz</button>
+          <button type="button" onclick="window.handleNameLogin('abdulrafay40023@gmail.com')" style="padding:7px 13px; border-radius:8px; background:rgba(34,197,94,0.14); border:1px solid rgba(34,197,94,0.4); color:#4ade80; font-size:12px; font-weight:700; cursor:pointer;">👑 abdulrafay40023@gmail.com (Owner)</button>
+          <button type="button" onclick="window.handleNameLogin('shahbazzaidi250@gmail.com')" style="padding:7px 13px; border-radius:8px; background:rgba(56,189,248,0.14); border:1px solid rgba(56,189,248,0.4); color:#38bdf8; font-size:12px; font-weight:700; cursor:pointer;">👤 shahbazzaidi250@gmail.com</button>
         </div>
       </div>
 
       <div style="margin-top:14px; font-size:11.5px; color:#64748b; display:flex; align-items:center; justify-content:center; gap:6px;">
-        <span>🔒 100% Isolated Per-User System • Auto-Saves on Refresh</span>
+        <span>🔒 100% Isolated Per-Gmail Dashboard • No Mixup Between Accounts</span>
       </div>
     </div>
   </div>
@@ -4304,37 +4304,51 @@
     }
 
     
-    window.handleNameLogin = async function(presetName = '') {
+    window.handleNameLogin = async function(presetEmail = '') {
       const inp = document.getElementById('userNameLoginInput');
-      const rawInput = (presetName || (inp ? inp.value : '') || '').trim();
+      let rawInput = (presetEmail || (inp ? inp.value : '') || '').trim();
       const errBox = document.getElementById('loginError');
       if (!rawInput) {
         if (errBox) {
           errBox.style.display = 'block';
-          errBox.textContent = '⚠️ Please apna Name likhein (maslan: Abdul Rafay, Shahbaz, etc.)!';
+          errBox.textContent = '⚠️ Please apni Gmail ID likhein (maslan: abdulrafay40023@gmail.com)!';
         }
         if (inp) inp.focus();
         return;
       }
-      if (errBox) errBox.style.display = 'none';
-      const cleanLower = rawInput.toLowerCase().replace(/\s+/g, ' ').trim();
-      let mappedEmail = cleanLower.replace(/[^a-z0-9]+/g, '.') + '@studio.local';
-      let displayName = rawInput;
-      if (cleanLower.includes('rafay') || cleanLower === 'abdul rafay' || cleanLower === 'admin') {
-        mappedEmail = 'abdulrafay40023@gmail.com';
-        displayName = 'Abdul Rafay';
-      } else if (cleanLower.includes('shahbaz') || cleanLower.includes('shehbaz')) {
-        mappedEmail = 'shahbazzaidi250@gmail.com';
-        displayName = 'Shahbaz Zaidi';
-      }  else if (cleanLower.includes('@')) {
-        mappedEmail = cleanLower;
+      let cleanLower = rawInput.toLowerCase().trim();
+      if (cleanLower === 'rafay' || cleanLower === 'abdul rafay' || cleanLower === 'admin') {
+        cleanLower = 'abdulrafay40023@gmail.com';
+      } else if (cleanLower === 'shahbaz' || cleanLower === 'shehbaz') {
+        cleanLower = 'shahbazzaidi250@gmail.com';
       }
+
+      if (!cleanLower.includes('@')) {
+        if (errBox) {
+          errBox.style.display = 'block';
+          errBox.textContent = '⚠️ Valid Gmail address likhein (maslan: ' + cleanLower + '@gmail.com)!';
+        }
+        if (inp) inp.focus();
+        return;
+      }
+
+      if (errBox) errBox.style.display = 'none';
+
+      let displayName = cleanLower.split('@')[0].replace(/[._\-0-9]+/g, ' ').trim();
+      displayName = displayName ? displayName.charAt(0).toUpperCase() + displayName.slice(1) : 'Google User';
+      if (cleanLower === 'abdulrafay40023@gmail.com' || cleanLower === 'abdulrafay73203@gmail.com') {
+        displayName = 'Abdul Rafay';
+      } else if (cleanLower === 'shahbazzaidi250@gmail.com') {
+        displayName = 'Shahbaz Zaidi';
+      }
+
       await activateSupabaseUserSession({
-        id: 'user_' + mappedEmail,
-        email: mappedEmail,
+        id: 'user_' + cleanLower.replace(/[^a-z0-9]/g, '_'),
+        email: cleanLower,
         user_metadata: {
           full_name: displayName,
           name: displayName,
+          email: cleanLower,
           avatar_url: ''
         },
         app_metadata: {
@@ -4344,6 +4358,7 @@
       }, true);
     };
     window.handleGoogleLogin = window.handleNameLogin;
+    window.handleGmailLogin = window.handleNameLogin;
 
     async function activateSupabaseUserSession(sbUser, isFreshLogin = false) {
       if (!sbUser) return;
