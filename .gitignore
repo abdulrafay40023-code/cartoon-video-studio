@@ -1,0 +1,6 @@
+.vercel
+.env*
+local_data/render_jobs/
+local_data/whisper_cache/
+__pycache__/
+*.pyc

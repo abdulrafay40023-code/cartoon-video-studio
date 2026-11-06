@@ -1,0 +1,57 @@
+{
+  "users": {
+    "abdulrafay40023@gmail.com": {
+      "name": "Abdul Rafay",
+      "norm_name": "abdulrafay40023@gmail.com",
+      "email": "abdulrafay40023@gmail.com",
+      "status": "approved",
+      "status_updated_at": 1793216564.6368558,
+      "scripts_count": 0,
+      "videos_count": 0,
+      "voices_count": 0,
+      "supabase_uid": "user_abdulrafay40023@gmail.com",
+      "niche_label": "\ud83e\uddd1 White-Skin Character \u2022 \ud83d\udcc1 VideoStudio_Scenes (1.png) \u2022 \ud83d\udc68 Hale (Male) \u2022 \ud83c\udfb5 Calmant Piano \u2022 \u267e\ufe0f Har Video",
+      "last_active": "Thursday, Oct 29, 12:42 AM"
+    },
+    "jennifer.cisternino2027@gmail.com": {
+      "name": "Jennifer Cisternino",
+      "norm_name": "jennifer.cisternino2027@gmail.com",
+      "email": "jennifer.cisternino2027@gmail.com",
+      "status": "approved",
+      "status_updated_at": 1793000000.0,
+      "scripts_count": 0,
+      "videos_count": 0,
+      "voices_count": 0
+    },
+    "shahbazzaidi250@gmail.com": {
+      "name": "Shahbaz Zaidi",
+      "norm_name": "shahbazzaidi250@gmail.com",
+      "email": "shahbazzaidi250@gmail.com",
+      "status": "approved",
+      "status_updated_at": 1793000000.0,
+      "scripts_count": 0,
+      "videos_count": 0,
+      "voices_count": 1,
+      "supabase_uid": "user_shahbazzaidi250@gmail.com",
+      "niche_label": "\ud83e\uddd1 White-Skin Character \u2022 \ud83d\udcc1 VideoStudio_Scenes (1.png) \u2022 \ud83d\udc68 Hale (Male) \u2022 \ud83c\udfb5 Calmant Piano \u2022 \u267e\ufe0f Har Video",
+      "last_active": "Thursday, Oct 29, 1:01 AM",
+      "cloud_projects_count": 1,
+      "cloud_videos_count": 0,
+      "latest_video_url": "",
+      "last_dashboard_sync": 1793221012.1653898
+    },
+    "garryamelia825@gmail.com": {
+      "name": "Garry Amelia",
+      "norm_name": "garryamelia825@gmail.com",
+      "email": "garryamelia825@gmail.com",
+      "status": "approved",
+      "status_updated_at": 1793000000.0,
+      "scripts_count": 0,
+      "videos_count": 0,
+      "voices_count": 0
+    }
+  },
+  "deleted": [],
+  "schema_v6_supabase": true,
+  "updated_at": 1793221012.1653917
+}
