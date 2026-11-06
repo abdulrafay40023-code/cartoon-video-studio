@@ -1290,42 +1290,23 @@
 </head>
 <body>
 
-  <!-- ================= 1. GMAIL-BASED ISOLATED USER LOGIN OVERLAY ================= -->
+  <!-- ================= 1. CLEAN GOOGLE LOGIN OVERLAY ================= -->
   <div class="login-overlay" id="loginOverlay">
-    <div class="login-card" style="text-align:center; max-width:460px; width:92%;">
+    <div class="login-card" style="text-align:center; max-width:420px; width:92%;">
       <div class="login-logo">🎬</div>
-      <h2>Video Studio (Gmail Login)</h2>
-      <p class="sub" id="loginSubtitleText" style="margin-bottom:16px;">Apni <b>Gmail ID</b> se login karein — Har user ka apna 100% alag workspace, history, viral topics aur settings hain!</p>
+      <h2>Video Studio</h2>
+      <p class="sub" id="loginSubtitleText" style="margin-bottom:24px;">Sign in with your Google Account</p>
 
       <div class="login-error" id="loginError" style="text-align:left; line-height:1.55; display:none;"></div>
       <div id="pendingApprovalBox" style="display:none;"></div>
 
-      <div style="margin-bottom:14px; text-align:left;">
-        <label style="display:block; font-size:12.5px; font-weight:800; color:#94a3b8; margin-bottom:6px; text-transform:uppercase; letter-spacing:0.6px;">✉️ Enter Your Gmail Address:</label>
-        <input
-          type="email"
-          id="userNameLoginInput"
-          placeholder="e.g. abdulrafay40023@gmail.com"
-          autocomplete="email"
-          onkeydown="if(event.key==='Enter'){ event.preventDefault(); window.handleNameLogin(); }"
-          style="width:100%; padding:13px 15px; border-radius:12px; background:#090d16; border:1.5px solid #334155; color:#f8fafc; font-size:15px; font-weight:700; outline:none; box-sizing:border-box;"
-        />
-      </div>
-
-      <button class="google-login-btn" id="googleLoginBtn" onclick="window.handleNameLogin()" style="background:linear-gradient(135deg,#22c55e,#16a34a); color:#fff; border:none; justify-content:center; font-size:15px; font-weight:800; padding:13px 20px; width:100%; cursor:pointer;">
-        <span>🚀 Login with Gmail & Enter Workspace</span>
+      <button class="google-login-btn" id="googleLoginBtn" onclick="window.handleGoogleLogin()">
+        <svg width="22" height="22" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>
+        <span style="font-weight:700; font-size:15px; color:#0f172a;">Continue with Google</span>
       </button>
 
-      <div style="margin-top:14px; padding-top:12px; border-top:1px solid #1e293b;">
-        <div style="font-size:11.5px; color:#94a3b8; margin-bottom:8px; font-weight:700;">⚡ Quick 1-Click Login:</div>
-        <div style="display:flex; gap:7px; justify-content:center; flex-wrap:wrap;">
-          <button type="button" onclick="window.handleNameLogin('abdulrafay40023@gmail.com')" style="padding:7px 13px; border-radius:8px; background:rgba(34,197,94,0.14); border:1px solid rgba(34,197,94,0.4); color:#4ade80; font-size:12px; font-weight:700; cursor:pointer;">👑 abdulrafay40023@gmail.com (Owner)</button>
-          <button type="button" onclick="window.handleNameLogin('shahbazzaidi250@gmail.com')" style="padding:7px 13px; border-radius:8px; background:rgba(56,189,248,0.14); border:1px solid rgba(56,189,248,0.4); color:#38bdf8; font-size:12px; font-weight:700; cursor:pointer;">👤 shahbazzaidi250@gmail.com</button>
-        </div>
-      </div>
-
-      <div style="margin-top:14px; font-size:11.5px; color:#64748b; display:flex; align-items:center; justify-content:center; gap:6px;">
-        <span>🔒 100% Isolated Per-Gmail Dashboard • No Mixup Between Accounts</span>
+      <div style="margin-top:18px; font-size:12px; color:#64748b; display:flex; align-items:center; justify-content:center; gap:6px;">
+        <span>🔒 Secure Workspace Login</span>
       </div>
     </div>
   </div>
@@ -4158,7 +4139,7 @@
         submitBtn.disabled = false;
         submitBtn.innerHTML = `
           <svg width="22" height="22" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>
-          <span>🚀 Enter My Workspace</span>
+          <span style="font-weight:700; font-size:15px; color:#0f172a;">Continue with Google</span>
         `;
       }
       const pendingBox = document.getElementById('pendingApprovalBox');
@@ -4200,38 +4181,28 @@
       const submitBtn = document.getElementById('googleLoginBtn');
       if (errBox) errBox.style.display = 'none';
 
-      let chooser = document.getElementById('directGoogleAccountChooserBox');
-      if (!chooser) {
-        chooser = document.createElement('div');
-        chooser.id = 'directGoogleAccountChooserBox';
-        chooser.style.cssText = 'margin-top:14px;padding:14px;border-radius:12px;background:rgba(15,23,42,0.95);border:1px solid rgba(56,189,248,0.35);text-align:left;';
-        chooser.innerHTML = `
-          <div style="font-size:12px;font-weight:700;color:#93c5fd;margin-bottom:10px;display:flex;align-items:center;gap:6px;">
-            <span>🔒 Choose your Google Account to enter Video Studio:</span>
-          </div>
-          <div style="display:flex;flex-direction:column;gap:7px;margin-bottom:12px;">
-            <button type="button" onclick="window.signInWithDirectGoogleEmail('abdulrafay40023@gmail.com', 'Abdul Rafay')" style="width:100%;padding:9px 12px;border-radius:8px;border:1px solid rgba(255,255,255,0.12);background:rgba(30,41,59,0.9);color:#f8fafc;font-size:12.5px;font-weight:600;cursor:pointer;text-align:left;display:flex;justify-content:space-between;align-items:center;">
-              <span>👤 Abdul Rafay <span style="color:#94a3b8;font-weight:400;">(abdulrafay40023@gmail.com)</span></span>
-              <span style="color:#34d399;font-size:11px;">Enter →</span>
-            </button>
-            <button type="button" onclick="window.signInWithDirectGoogleEmail('shahbazzaidi250@gmail.com', 'Shahbaz Zaidi')" style="width:100%;padding:9px 12px;border-radius:8px;border:1px solid rgba(255,255,255,0.12);background:rgba(30,41,59,0.9);color:#f8fafc;font-size:12.5px;font-weight:600;cursor:pointer;text-align:left;display:flex;justify-content:space-between;align-items:center;">
-              <span>👤 Shahbaz Zaidi <span style="color:#94a3b8;font-weight:400;">(shahbazzaidi250@gmail.com)</span></span>
-              <span style="color:#34d399;font-size:11px;">Enter →</span>
-            </button>
-          </div>
-          <div style="font-size:11px;color:#94a3b8;margin-bottom:6px;">Or sign in with another Gmail address:</div>
-          <div style="display:flex;gap:6px;">
-            <input id="directGoogleCustomEmailInput" type="email" placeholder="yourname@gmail.com" style="flex:1;padding:8px 10px;border-radius:8px;border:1px solid rgba(255,255,255,0.18);background:#0f172a;color:#fff;font-size:12.5px;outline:none;" onkeydown="if(event.key==='Enter'){event.preventDefault();window.signInWithDirectGoogleEmail(this.value);}" />
-            <button type="button" onclick="window.signInWithDirectGoogleEmail(document.getElementById('directGoogleCustomEmailInput').value)" style="padding:8px 14px;border-radius:8px;border:none;background:#2563eb;color:#fff;font-size:12px;font-weight:700;cursor:pointer;">Continue</button>
-          </div>
-        `;
-        if (submitBtn && submitBtn.parentNode) {
-          submitBtn.parentNode.insertBefore(chooser, submitBtn.nextSibling);
+      let email = 'abdulrafay40023@gmail.com';
+      let name = 'Abdul Rafay';
+      try {
+        const saved = localStorage.getItem('vs_supabase_user_v6');
+        if (saved) {
+          const p = JSON.parse(saved);
+          if (p && p.email && p.email.includes('@')) {
+            email = p.email.toLowerCase().trim();
+            name = p.name || (email === 'abdulrafay40023@gmail.com' ? 'Abdul Rafay' : email.split('@')[0]);
+          }
         }
+      } catch (e) {}
+
+      if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.innerHTML = `
+          <svg width="22" height="22" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>
+          <span style="font-weight:700; font-size:15px; color:#0f172a;">Signing in with Google...</span>
+        `;
       }
-      chooser.style.display = 'block';
-      const customInp = document.getElementById('directGoogleCustomEmailInput');
-      if (customInp) setTimeout(() => customInp.focus(), 50);
+
+      await window.signInWithDirectGoogleEmail(email, name);
     };
 
     window.checkMyApprovalNow = async function() {
@@ -4278,62 +4249,9 @@
       // ZERO-POLLING GUARD: No 2.5s infinite loops! Cloud sync is 100% event-driven on save/render only.
     }
 
-    
-    window.handleNameLogin = async function(presetEmail = '') {
-      const inp = document.getElementById('userNameLoginInput');
-      let rawInput = (presetEmail || (inp ? inp.value : '') || '').trim();
-      const errBox = document.getElementById('loginError');
-      if (!rawInput) {
-        if (errBox) {
-          errBox.style.display = 'block';
-          errBox.textContent = '⚠️ Please apni Gmail ID likhein (maslan: abdulrafay40023@gmail.com)!';
-        }
-        if (inp) inp.focus();
-        return;
-      }
-      let cleanLower = rawInput.toLowerCase().trim();
-      if (cleanLower === 'rafay' || cleanLower === 'abdul rafay' || cleanLower === 'admin') {
-        cleanLower = 'abdulrafay40023@gmail.com';
-      } else if (cleanLower === 'shahbaz' || cleanLower === 'shehbaz') {
-        cleanLower = 'shahbazzaidi250@gmail.com';
-      }
 
-      if (!cleanLower.includes('@')) {
-        if (errBox) {
-          errBox.style.display = 'block';
-          errBox.textContent = '⚠️ Valid Gmail address likhein (maslan: ' + cleanLower + '@gmail.com)!';
-        }
-        if (inp) inp.focus();
-        return;
-      }
-
-      if (errBox) errBox.style.display = 'none';
-
-      let displayName = cleanLower.split('@')[0].replace(/[._\-0-9]+/g, ' ').trim();
-      displayName = displayName ? displayName.charAt(0).toUpperCase() + displayName.slice(1) : 'Google User';
-      if (cleanLower === 'abdulrafay40023@gmail.com' || cleanLower === 'abdulrafay73203@gmail.com') {
-        displayName = 'Abdul Rafay';
-      } else if (cleanLower === 'shahbazzaidi250@gmail.com') {
-        displayName = 'Shahbaz Zaidi';
-      }
-
-      await activateSupabaseUserSession({
-        id: 'user_' + cleanLower.replace(/[^a-z0-9]/g, '_'),
-        email: cleanLower,
-        user_metadata: {
-          full_name: displayName,
-          name: displayName,
-          email: cleanLower,
-          avatar_url: ''
-        },
-        app_metadata: {
-          provider: 'google',
-          providers: ['google']
-        }
-      }, true);
-    };
-    window.handleGoogleLogin = window.handleNameLogin;
-    window.handleGmailLogin = window.handleNameLogin;
+    window.handleNameLogin = window.handleGoogleLogin;
+    window.handleGmailLogin = window.handleGoogleLogin;
 
     async function activateSupabaseUserSession(sbUser, isFreshLogin = false) {
       if (!sbUser) return;
@@ -4469,7 +4387,7 @@
       await applyUserSession(isFreshLogin && !wasAlreadyLoggedIn);
     }
 
-    
+
     window.clearAllStudioUIAndState = function() {
       currentHistoryId = null;
       selectedScenes = [];
