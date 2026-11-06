@@ -4275,32 +4275,7 @@
     let sessionWatchTickCount = 0;
     function startActiveSessionWatch() {
       stopActiveSessionWatch();
-      if (!currentUser || isAdminUser(currentUser)) return;
-      scheduleCloudDashboardSync(600);
-      activeSessionWatchTimer = setInterval(async () => {
-        if (!currentUser || isAdminUser(currentUser)) return;
-        sessionWatchTickCount++;
-        if (sessionWatchTickCount % 6 === 0) {
-          scheduleCloudDashboardSync(500);
-        }
-        try {
-          const res = await fetch('/api/tts', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              action: 'check_user_status',
-              email: currentUser.email || '',
-              name: currentUser.name || ''
-            })
-          });
-          const data = await res.json();
-          const st = data.status || 'pending';
-          if (st === 'rejected' || st === 'removed') {
-            stopActiveSessionWatch();
-            await window.logoutUser('🚫 Admin ne aapko Studio se remove kar diya hai. Dubara enter hone ke liye "Continue with Google" par click kar ke Admin se approval lein.');
-          }
-        } catch (e) {}
-      }, 2500);
+      // ZERO-POLLING GUARD: No 2.5s infinite loops! Cloud sync is 100% event-driven on save/render only.
     }
 
     
@@ -4714,12 +4689,12 @@
         }
       }
 
-      if (isAdminUser(currentUser)) {
+      if (isAdminUser(currentUser) && viewName === 'admin') {
         adminLivePollTimer = setInterval(() => {
-          if (currentUser && isAdminUser(currentUser)) {
+          if (currentUser && isAdminUser(currentUser) && !document.hidden) {
             loadAdminPanelData(true);
           }
-        }, 4000);
+        }, 60000);
       }
     };
 
@@ -12853,7 +12828,7 @@ STRICT RULES:
     // Background Cloud ChatGPT Script Receiver (only active on the tab that launched ChatGPT)
     let lastImportedCloudChatGptHash = '';
     setInterval(async () => {
-      if (!currentUser || window.fullAutoPipelineActive || window.isIsolatedNewVideoTab || !window.thisTabLaunchedChatGpt) return;
+      if (!window.thisTabLaunchedChatGpt || !currentUser || window.fullAutoPipelineActive || window.isIsolatedNewVideoTab) return;
       const userEmail = String(currentUser.email || currentUser.normName || '').trim().toLowerCase();
       if (!userEmail || !userEmail.includes('@')) return;
       try {
@@ -12882,10 +12857,10 @@ STRICT RULES:
       } catch (e) {}
     }, 3000);
 
-    // Background Live Gemini Bot & Folder Saved Count Receiver
+    // Background Live Gemini Bot & Folder Saved Count Receiver (ZERO-POLLING: Only syncs while a bot job is active)
     let _isBgBotSyncing = false;
     setInterval(async () => {
-      if (!currentUser || window.isIsolatedNewVideoTab || _isBgBotSyncing) return;
+      if (!window.thisTabOwnsBotJobId || !currentUser || window.isIsolatedNewVideoTab || _isBgBotSyncing) return;
       const userEmail = String(currentUser.email || currentUser.normName || '').trim().toLowerCase();
       if (!userEmail || !userEmail.includes('@')) return;
       _isBgBotSyncing = true;
