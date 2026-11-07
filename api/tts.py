@@ -4932,7 +4932,7 @@ class handler(BaseHTTPRequestHandler):
             if action == "bot_queue_poll":
                 client_ip = _extract_client_ip(self.headers)
                 origin_hdr = str(self.headers.get("Origin") or self.headers.get("Referer") or "").lower()
-                is_gemini_ext = "gemini.google.com" in origin_hdr
+                is_gemini_ext = "gemini.google.com" in origin_hdr or "chrome-extension://" in origin_hdr or bool(data.get("from_extension"))
                 bound_doc = load_pc_bound_email(client_ip, mark_ext_ping=True)
                 bound_email = (bound_doc.get("email") or "").strip().lower()
                 conn_emails = bound_doc.get("connected_emails") or ([] if not bound_email else [bound_email])
@@ -4941,6 +4941,33 @@ class handler(BaseHTTPRequestHandler):
                     self._send_json(200, {"ok": True, "bound_email": "", "connected_emails": conn_emails, "job": {"active": False}})
                     return
                 job_doc = load_bot_job_cloud(user_email, client_ip=client_ip)
+                exp_bot = data.get("expected_bot_job")
+                if isinstance(exp_bot, dict) and exp_bot.get("job_id") and isinstance(exp_bot.get("prompts"), list) and len(exp_bot.get("prompts")) > 0:
+                    if not isinstance(job_doc, dict) or job_doc.get("job_id") != exp_bot.get("job_id"):
+                        p_list = exp_bot.get("prompts") or []
+                        g_tot = int(exp_bot.get("grandTotal") or len(p_list) or 1)
+                        job_doc = {
+                            "job_id": str(exp_bot.get("job_id")),
+                            "email": user_email,
+                            "owner_email": user_email,
+                            "client_ip": client_ip,
+                            "active": True,
+                            "status": "queued",
+                            "statusText": f"🚀 Waiting for Gemini Browser Extension ({user_email}) to pick up {len(p_list)} prompts...",
+                            "folderName": str(exp_bot.get("folderName") or "VideoStudio_Scenes").strip(),
+                            "fileNameFormat": str(exp_bot.get("fileNameFormat") or "1").strip(),
+                            "prompts": p_list,
+                            "attachRefImage": True,
+                            "refImageUrl": str(exp_bot.get("refImageUrl") or "https://cartoon-video-studio.vercel.app/REFERENCE_CHARACTER_1.png"),
+                            "currentIndex": 0,
+                            "total": len(p_list),
+                            "grandTotal": g_tot,
+                            "savedSceneNums": [],
+                            "generated_images": {},
+                            "started_at": time.time(),
+                            "updated_at": time.time(),
+                        }
+                        save_bot_job_cloud(user_email, job_doc, client_ip=client_ip)
                 if is_gemini_ext and (not isinstance(job_doc, dict) or not job_doc.get("active")):
                     alt_active = find_active_bot_job_for_ip(client_ip)
                     if isinstance(alt_active, dict) and alt_active.get("active"):

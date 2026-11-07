@@ -11276,8 +11276,9 @@ If this video helped you, subscribe to our channel and share it with a friend wh
       }
     }
 
-    function startStudioCloudBotPolling(userEmail, jobId, totalCount, cleanFolder, chosenFormat) {
+    function startStudioCloudBotPolling(userEmail, jobId, totalCount, cleanFolder, chosenFormat, promptsForSync = null) {
       if (cloudBotPollTimer) clearInterval(cloudBotPollTimer);
+      let botPickedUpConfirmed = false;
       cloudBotPollTimer = setInterval(async () => {
         if (window.isIsolatedNewVideoTab || (window.thisTabOwnsBotJobId && jobId && window.thisTabOwnsBotJobId !== jobId)) {
           clearInterval(cloudBotPollTimer);
@@ -11285,15 +11286,29 @@ If this video helped you, subscribe to our channel and share it with a friend wh
           return;
         }
         try {
+          const pollBody = { action: 'bot_queue_poll', email: userEmail };
+          if (!botPickedUpConfirmed && Array.isArray(promptsForSync) && promptsForSync.length > 0) {
+            pollBody.expected_bot_job = {
+              job_id: jobId,
+              email: userEmail,
+              folderName: cleanFolder,
+              fileNameFormat: chosenFormat,
+              prompts: promptsForSync,
+              grandTotal: totalCount
+            };
+          }
           const resp = await fetch('/api/tts', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ action: 'bot_queue_poll', email: userEmail })
+            body: JSON.stringify(pollBody)
           });
           if (!resp.ok) return;
           const data = await resp.json();
           const job = data && data.job ? data.job : null;
           if (!job || (jobId && job.job_id && job.job_id !== jobId)) return;
+          if (job.status === 'running' || job.status === 'completed' || (Number(job.currentIndex) || 0) > 0) {
+            botPickedUpConfirmed = true;
+          }
 
           const stEl = document.getElementById('geminiBotStatusText');
           const stopBtn = document.getElementById('stopGeminiBotBtn');
@@ -11487,7 +11502,7 @@ If this video helped you, subscribe to our channel and share it with a friend wh
               preserveGeneratedImages: shouldResumeMissing
             })
           });
-          startStudioCloudBotPolling(userEmail, jobId, allPromptsList.length, cleanFolder, chosenFormat);
+          startStudioCloudBotPolling(userEmail, jobId, allPromptsList.length, cleanFolder, chosenFormat, promptsList);
         } catch (e) {}
       }
 
