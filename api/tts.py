@@ -4247,6 +4247,29 @@ class handler(BaseHTTPRequestHandler):
                     self._send_json(200, {"ok": True, "bound_email": "", "connected_emails": conn_emails, "ext_recently_active": ext_active, "job": {"active": False}})
                     return
                 job_doc = load_chatgpt_job_cloud(user_email, client_ip=client_ip)
+                exp_job = data.get("expected_job")
+                if isinstance(exp_job, dict) and exp_job.get("job_id") and (exp_job.get("prompt") or exp_job.get("chatgpt_prompt")):
+                    if not isinstance(job_doc, dict) or job_doc.get("job_id") != exp_job.get("job_id"):
+                        pr_txt = str(exp_job.get("chatgpt_prompt") or exp_job.get("prompt") or "").strip()
+                        tp_txt = str(exp_job.get("topic") or "").strip()
+                        job_doc = {
+                            "job_id": str(exp_job.get("job_id")),
+                            "email": user_email,
+                            "owner_email": user_email,
+                            "client_ip": client_ip,
+                            "active": True,
+                            "status": "queued",
+                            "topic": tp_txt,
+                            "duration_mins": int(exp_job.get("duration_mins") or 10),
+                            "chatgpt_prompt": pr_txt,
+                            "prompt": pr_txt,
+                            "script_text": "",
+                            "scriptText": "",
+                            "statusText": f"⏳ Sending topic \"{tp_txt[:55]}\" to ChatGPT...",
+                            "started_at": time.time(),
+                            "updated_at": time.time(),
+                        }
+                        save_chatgpt_job_cloud(user_email, job_doc, client_ip=client_ip)
                 self._send_json(200, {"ok": True, "bound_email": bound_email or user_email, "connected_emails": conn_emails, "ext_recently_active": ext_active, "job": job_doc})
                 return
 
@@ -4810,7 +4833,7 @@ class handler(BaseHTTPRequestHandler):
                     if uploaded_ref:
                         ref_img_url = uploaded_ref
                 if not ref_img_url:
-                    ref_img_url = "https://editing-tool-main.vercel.app/REFERENCE_CHARACTER_1.png"
+                    ref_img_url = "https://cartoon-video-studio.vercel.app/REFERENCE_CHARACTER_1.png"
                 attach_ref = True
 
                 preserved_gen_images = {}

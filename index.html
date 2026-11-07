@@ -4926,6 +4926,10 @@
         const raw = localStorage.getItem(draftKey);
         if (raw) {
           const d = JSON.parse(raw);
+          if (d.script && /mahogany table at the downtown bistro/i.test(d.script)) {
+            d.script = '';
+            d.promptScript = '';
+          }
           if (d.script) {
             document.getElementById('ttsScriptInput').value = d.script;
           }
@@ -4980,6 +4984,10 @@
           req.onerror = () => resolve(null);
         });
         if (ws) {
+          if (ws.script && /mahogany table at the downtown bistro/i.test(ws.script)) {
+            ws.script = '';
+            ws.promptScript = '';
+          }
           if (ws.script && !document.getElementById('ttsScriptInput').value) {
             document.getElementById('ttsScriptInput').value = ws.script;
           }
@@ -12155,21 +12163,39 @@ STRICT RULES:
         }, '*');
       }
 
-      // Poll Cloud ChatGPT Queue on every iteration (wait up to 45s to start streaming, and up to 240s while ChatGPT is actively streaming a full 10-min script!)
+      // Poll Cloud ChatGPT Queue on every iteration (wait for ChatGPT on chatgpt.com to write and stream the full script!)
       const startWait = Date.now();
       let lastStreamedChatGptText = '';
       let stableStreamPolls = 0;
       while (!chatGptResolvedScript && !window.fullAutoPipelineCancelled) {
         const elapsedSec = (Date.now() - startWait) / 1000;
-        const maxWaitSec = (lastStreamedChatGptText.length > 60) ? 300 : ((chatGptActiveProgress || isExtInstalled) ? 180 : 45);
+        const maxWaitSec = 360;
         if (elapsedSec > maxWaitSec) break;
+
+        if (!chatGptActiveProgress && elapsedSec > 8) {
+          updateFullAutoPipelineUI(
+            10,
+            `🤖 Sending Topic to ChatGPT (${userEmail || 'Extension'}) — Writing script on chatgpt.com (${Math.round(elapsedSec)}s)...`,
+            true
+          );
+        }
 
         if (userEmail) {
           try {
+            const pollPayload = { action: 'chatgpt_queue_poll', email: userEmail };
+            if (!chatGptActiveProgress) {
+              pollPayload.expected_job = {
+                job_id: jobId,
+                email: userEmail,
+                topic: topicTitle,
+                duration_mins: durMins,
+                prompt: finalPromptForExt
+              };
+            }
             const pRes = await fetch('/api/tts', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ action: 'chatgpt_queue_poll', email: userEmail })
+              body: JSON.stringify(pollPayload)
             });
             if (pRes.ok) {
               const pData = await pRes.json();
@@ -12219,54 +12245,14 @@ STRICT RULES:
         chatGptResolvedScript = lastStreamedChatGptText;
       }
       if (chatGptResolvedScript && chatGptResolvedScript.length > 80) {
+        window.lastGeneratedScriptWasFromChatGpt = true;
         saveUserDraftState();
         return chatGptResolvedScript;
       }
 
-      // 2. Seamless High-Retention AI Script Writer Fallback (with Live YouTube Data API v3 Reference Analysis)
-      const plan = computeScriptPlanForMinutes(durMins);
-      const totalParts = plan.totalParts;
-      const nichePayload = getActiveNicheConfigPayload();
-      nichePayload.script_duration_mins = durMins;
-      nichePayload.total_parts = totalParts;
-      nichePayload.target_total_words = plan.targetWords;
-      if (youtubeRef) nichePayload.ref_youtube_url = youtubeRef;
-
-      const partsCompleted = [];
-      let protagonistName = activeNicheConfig.fixed_char_name || 'Daniel';
-      for (let p = 1; p <= totalParts; p++) {
-        if (window.fullAutoPipelineCancelled) throw new Error('__CANCELLED__');
-        const pct = 8 + Math.round((p / totalParts) * 16);
-        const qLabel = window.currentQueueTotalVideos > 1 ? `[Video ${window.currentQueueVideoIndex}/${window.currentQueueTotalVideos}] ` : '';
-        updateFullAutoPipelineUI(pct, `✍️ ${qLabel}Step 1/4: Writing YouTube-Modeled Viral Script "${topicTitle}" (Part ${p}/${totalParts})...`, true);
-        nichePayload.words_written_so_far = partsCompleted.join(' ').split(/\s+/).filter(Boolean).length;
-        const res = await fetch('/api/tts', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            action: 'generate_script_part',
-            topic: `${topicTitle} (${kwVal})`,
-            part_num: p,
-            mode: 'paid',
-            char_name: protagonistName,
-            prev_tail: partsCompleted.length > 0 ? partsCompleted[partsCompleted.length - 1] : '',
-            youtube_ref: youtubeRef,
-            niche_config: nichePayload
-          })
-        });
-        const data = await res.json();
-        if (!res.ok || !data.ok) {
-          throw new Error(data.error || `Failed writing script part ${p}`);
-        }
-        protagonistName = data.protagonist || protagonistName;
-        partsCompleted.push(data.part_text);
-
-        const partial = partsCompleted.join('\n\n');
-        document.getElementById('ttsScriptInput').value = partial;
-        document.getElementById('promptScriptInput').value = partial;
-        autoResizeScriptBoxes();
-      }
-      return partsCompleted.join('\n\n');
+      throw new Error(
+        `ChatGPT (chatgpt.com) se response nahi aaya! Make sure Chrome mein chatgpt.com tab khula hai aur Video Studio Extension mein aapki Gmail (${userEmail || 'abdulrafay40023@gmail.com'}) Connected hai.`
+      );
     }
 
     window.startFullAutoPipelineForTopic = async function(topicIdx) {
@@ -12370,7 +12356,7 @@ STRICT RULES:
 
       // Cleanly reset video workspace if previous video, scenes, or old script exist so Video #2 never mixes with Video #1!
       const curScript = (document.getElementById('ttsScriptInput') || {}).value || '';
-      const hasOldWork = Boolean(currentVideoBlob || voiceoverFile || (selectedScenes && selectedScenes.length > 0) || (curScript.length > 100 && window.lastGeneratedScriptTopic && window.lastGeneratedScriptTopic !== String(topicTitle).trim().toLowerCase()));
+      const hasOldWork = Boolean(currentVideoBlob || voiceoverFile || (selectedScenes && selectedScenes.length > 0) || curScript.length > 20);
       if (hasOldWork) {
         await window.startNewVideoPage();
         window.selectedViralTopicQueue = [tIdx];
@@ -12433,10 +12419,10 @@ STRICT RULES:
       const qPrefix = queueTotal > 1 ? `[Queue Video #${queueIdx}/${queueTotal}] ` : '';
 
       try {
-        // STEP 1: Write a fresh script for the selected topicTitle (only reuse existingBoxScript if it was explicitly written for this exact topicTitle)
+        // STEP 1: Write a fresh script in ChatGPT for the selected topicTitle
         const existingBoxScript = String((document.getElementById('ttsScriptInput') || {}).value || (document.getElementById('promptScriptInput') || {}).value || '').trim();
         const normTopic = String(topicTitle || '').trim().toLowerCase();
-        const sameTopicAsLoaded = Boolean(window.lastGeneratedScriptTopic && window.lastGeneratedScriptTopic === normTopic && existingBoxScript.length > 200);
+        const sameTopicAsLoaded = Boolean(window.lastGeneratedScriptWasFromChatGpt && window.lastGeneratedScriptTopic && window.lastGeneratedScriptTopic === normTopic && existingBoxScript.length > 200);
         let fullScript = '';
         if (sameTopicAsLoaded) {
           fullScript = existingBoxScript;
@@ -12676,13 +12662,14 @@ STRICT RULES:
         if (window.fullAutoPipelineActive) {
           updateFullAutoPipelineUI(14, `🤖 ${msg.statusText || 'ChatGPT is writing your viral script...'}`, true);
         }
-      } else if (msg.type === 'CHATGPT_BOT_DONE' && msg.scriptText) {
-        if (!window.thisTabLaunchedChatGpt && typeof activeChatGptScriptResolve !== 'function') return;
+      } else if ((msg.type === 'CHATGPT_BOT_DONE' || msg.type === 'CHATGPT_SCRIPT_READY') && (msg.scriptText || msg.script_text)) {
+        const resolvedTxt = msg.scriptText || msg.script_text || '';
+        window.lastGeneratedScriptWasFromChatGpt = true;
         if (typeof activeChatGptScriptResolve === 'function') {
-          activeChatGptScriptResolve(msg.scriptText);
+          activeChatGptScriptResolve(resolvedTxt);
         } else {
-          document.getElementById('ttsScriptInput').value = msg.scriptText;
-          document.getElementById('promptScriptInput').value = msg.scriptText;
+          document.getElementById('ttsScriptInput').value = resolvedTxt;
+          document.getElementById('promptScriptInput').value = resolvedTxt;
           autoResizeScriptBoxes();
           saveUserDraftState();
         }
