@@ -4282,11 +4282,15 @@ class handler(BaseHTTPRequestHandler):
                 job_doc = load_chatgpt_job_cloud(user_email, client_ip=client_ip)
                 if not job_doc or not isinstance(job_doc, dict):
                     job_doc = {"email": user_email, "owner_email": user_email, "client_ip": client_ip}
-                if data.get("job_id"):
-                    job_doc["job_id"] = str(data.get("job_id"))
+                incoming_jid = str(data.get("job_id") or "").strip()
+                if incoming_jid:
+                    if job_doc.get("job_id") and job_doc.get("job_id") != incoming_jid:
+                        job_doc["script_text"] = ""
+                        job_doc["scriptText"] = ""
+                    job_doc["job_id"] = incoming_jid
                 script_out = (data.get("script_text") or data.get("scriptText") or "").strip()
                 status_val = (data.get("status") or "completed").strip()
-                if script_out or status_val == "completed":
+                if "script_text" in data or "scriptText" in data or script_out or status_val == "completed":
                     job_doc["script_text"] = script_out
                     job_doc["scriptText"] = script_out
                 job_doc["status"] = status_val
@@ -4753,20 +4757,22 @@ class handler(BaseHTTPRequestHandler):
                 self._send_json(200, {"ok": True, "synced_key": primary_key, "dashboard": dash_payload})
                 return
 
-            # 4E-2. USER FETCH OWN CLOUD DASHBOARD (RESTORES CLOUD-SAVED OR ADMIN-FIXED VIDEOS & SCRIPTS)
+            # 4E-2. USER FETCH OWN CLOUD DASHBOARD (NEVER OVERWRITE NEW VIDEO WORKSPACE WITH STALE CACHE)
             if action == "get_my_cloud_dashboard":
+                self._send_json(200, {"ok": True, "dashboard": {"active_workspace": {}, "history_items": []}})
+                return
+
+            if action == "clear_all_user_cache":
+                client_ip = _extract_client_ip(self.headers)
                 user_email = (data.get("email") or "").strip().lower()
                 user_name = (data.get("name") or "").strip().lower()
-                reg = load_registry()
-                found_key = _find_registry_user_key(reg["users"], user_email or user_name)
-                candidate_keys = [k for k in [found_key, user_email, user_name] if k]
-                dash_data = {}
-                for ck in candidate_keys:
-                    loaded = load_user_dashboard_cloud(ck)
-                    if loaded and (loaded.get("history_items") or loaded.get("active_workspace") or loaded.get("niche_config")):
-                        dash_data = loaded
-                        break
-                self._send_json(200, {"ok": True, "dashboard": dash_data or {}})
+                for ck in [user_email, user_name]:
+                    if ck:
+                        save_user_dashboard_cloud(ck, {"niche_config": {}, "active_workspace": {}, "history_items": [], "updated_at": time.time()})
+                if user_email or client_ip:
+                    save_chatgpt_job_cloud(user_email, {"active": False, "status": "cleaned", "chatgpt_prompt": "", "prompt": "", "script_text": "", "scriptText": ""}, client_ip=client_ip)
+                    save_bot_job_cloud(user_email, {"active": False, "status": "cleaned", "prompts": [], "generated_images": {}, "currentIndex": 0, "total": 0}, client_ip=client_ip)
+                self._send_json(200, {"ok": True})
                 return
 
             # 4F. ADMIN INSPECT ANY USER'S FULL DASHBOARD, SCRIPTS, PROMPTS & CREATED VIDEOS

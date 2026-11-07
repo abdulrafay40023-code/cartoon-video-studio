@@ -4657,11 +4657,11 @@
     }
 
     function getTabScopedDraftKey(normName) {
-      return `vs_draft_v30_${normName}`;
+      return `vs_draft_v42_${normName}`;
     }
 
     function getTabScopedWorkspaceKey(normName) {
-      return `ws_v30_${normName}`;
+      return `ws_v42_${normName}`;
     }
 
     // Persistent Per-Folder Saved Scene Registry (tracks genuinely saved scenes per folder)
@@ -4919,16 +4919,72 @@
 
     async function restoreUserDraftState() {
       if (!currentUser) return;
+      const curEmClean = String(currentUser.email || currentUser.normName || '').trim().toLowerCase();
+
+      // One-time complete cache purge so all old stale scripts, prompts, queues, and history are 100% wiped clean!
+      if (!localStorage.getItem('vs_clean_slate_purge_v12')) {
+        try {
+          localStorage.setItem('vs_clean_slate_purge_v12', '1');
+          const keysToRemove = [];
+          for (let i = 0; i < localStorage.length; i++) {
+            const k = localStorage.key(i);
+            if (k && /^(vs_draft_|vs_inprogress_|vs_viral_queue_user_v[1-6]_|vs_completed_topic_titles_v[1-6]_|vs_saved_scenes_|vs_last_voice_|vs_voice_chunks_|vs_script_copied_|vs_copied_prompts_)/.test(k)) {
+              keysToRemove.push(k);
+            }
+          }
+          keysToRemove.forEach(k => { try { localStorage.removeItem(k); } catch (e) {} });
+        } catch (e) {}
+        try {
+          const db = await openHistoryDB();
+          await new Promise((resolve) => {
+            const tx = db.transaction(['videos', 'workspaces'], 'readwrite');
+            tx.objectStore('videos').clear();
+            tx.objectStore('workspaces').clear();
+            tx.oncomplete = resolve;
+            tx.onerror = resolve;
+          });
+        } catch (e) {}
+        if (curEmClean) {
+          fetch('/api/tts', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'clear_all_user_cache', email: curEmClean, name: currentUser.normName || '' })
+          }).catch(() => {});
+          fetch('/api/tts', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'chatgpt_queue_clean', email: curEmClean, clean: true })
+          }).catch(() => {});
+          fetch('/api/tts', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'bot_queue_clean', email: curEmClean })
+          }).catch(() => {});
+        }
+        window.clearAllStudioUIAndState();
+        if (typeof window.restoreViralTopicsAndQueueState === 'function') {
+          window.restoreViralTopicsAndQueueState();
+        }
+        return;
+      }
+
+      if (typeof window.restoreViralTopicsAndQueueState === 'function') {
+        window.restoreViralTopicsAndQueueState();
+      }
+
       const draftKey = getTabScopedDraftKey(currentUser.normName);
       const wsKey = getTabScopedWorkspaceKey(currentUser.normName);
-      const curEmClean = String(currentUser.email || currentUser.normName || '').trim().toLowerCase();
+      const isStaleOldScript = (txt) => /mahogany table at the downtown bistro|Your best friend just called you unemployed in front of six people/i.test(String(txt || ''));
+
       try {
         const raw = localStorage.getItem(draftKey);
         if (raw) {
           const d = JSON.parse(raw);
-          if (d.script && /mahogany table at the downtown bistro/i.test(d.script)) {
+          if (d.script && isStaleOldScript(d.script)) {
             d.script = '';
             d.promptScript = '';
+            d.generatedScriptText = '';
+            d.promptsText = '';
           }
           if (d.script) {
             document.getElementById('ttsScriptInput').value = d.script;
@@ -4952,17 +5008,10 @@
           if (d.scriptTopic && document.getElementById('scriptTopicInput')) {
             document.getElementById('scriptTopicInput').value = d.scriptTopic;
           }
-          if (d.generatedScriptText && document.getElementById('generatedScriptBox')) {
+          if (d.generatedScriptText && !isStaleOldScript(d.generatedScriptText) && document.getElementById('generatedScriptBox')) {
             document.getElementById('scriptResultWrap').style.display = 'block';
             document.getElementById('generatedScriptBox').value = d.generatedScriptText;
             if (d.scriptStatsBadge) document.getElementById('scriptStatsBadge').textContent = d.scriptStatsBadge;
-            if (localStorage.getItem(`vs_script_copied_${currentUser.normName}`) === '1') {
-              const cpBtn = document.getElementById('copyScriptBtn');
-              if (cpBtn) {
-                cpBtn.classList.add('copied-green');
-                cpBtn.textContent = '✅ Copied';
-              }
-            }
           }
           if (d.currentHistoryId) {
             currentHistoryId = d.currentHistoryId;
@@ -4970,11 +5019,7 @@
         }
       } catch (e) {}
 
-      if (typeof window.restoreViralTopicsAndQueueState === 'function') {
-        window.restoreViralTopicsAndQueueState();
-      }
-
-      // Restore binary state (Voiceover MP3, Images Folder, Video, Topic, Generated Script) from IndexedDB
+      // Restore binary state from IndexedDB ONLY if valid and non-stale
       try {
         const db = await openHistoryDB();
         const ws = await new Promise((resolve) => {
@@ -4984,9 +5029,11 @@
           req.onerror = () => resolve(null);
         });
         if (ws) {
-          if (ws.script && /mahogany table at the downtown bistro/i.test(ws.script)) {
+          if (ws.script && isStaleOldScript(ws.script)) {
             ws.script = '';
             ws.promptScript = '';
+            ws.generatedScriptText = '';
+            ws.promptsText = '';
           }
           if (ws.script && !document.getElementById('ttsScriptInput').value) {
             document.getElementById('ttsScriptInput').value = ws.script;
@@ -4999,15 +5046,11 @@
             document.getElementById('promptsResultWrap').style.display = 'block';
             renderPromptsCardsUI(ws.promptsText);
             if (ws.promptsBadge) document.getElementById('promptsCountBadge').textContent = ws.promptsBadge;
-          } else if (ws.promptsText) {
-            ws.promptsText = '';
-            ws.promptsBadge = '';
-            setTimeout(() => saveUserDraftState(), 150);
           }
           if (ws.scriptTopic && document.getElementById('scriptTopicInput') && !document.getElementById('scriptTopicInput').value) {
             document.getElementById('scriptTopicInput').value = ws.scriptTopic;
           }
-          if (ws.generatedScriptText && document.getElementById('generatedScriptBox') && !document.getElementById('generatedScriptBox').value) {
+          if (ws.generatedScriptText && !isStaleOldScript(ws.generatedScriptText) && document.getElementById('generatedScriptBox') && !document.getElementById('generatedScriptBox').value) {
             document.getElementById('scriptResultWrap').style.display = 'block';
             document.getElementById('generatedScriptBox').value = ws.generatedScriptText;
             if (ws.scriptStatsBadge) document.getElementById('scriptStatsBadge').textContent = ws.scriptStatsBadge;
@@ -5017,15 +5060,6 @@
           }
           if (ws.voiceoverBlob) {
             applyVoiceoverUI(ws.voiceoverBlob, ws.voiceoverFileName, ws.voiceoverDuration);
-            if (!String(ws.voiceoverFileName || '').includes('_CrispHale_')) {
-              restoreAndNormalizeLegacyVoiceoverBlob(ws.voiceoverBlob, ws.voiceoverFileName).then(async (fixed) => {
-                if (fixed && fixed.file) {
-                  applyVoiceoverUI(fixed.file, fixed.name, fixed.duration);
-                  await saveUserDraftState();
-                  await saveCurrentWorkspaceToHistoryIfNeeded();
-                }
-              });
-            }
           }
           if (Array.isArray(ws.scenesList) && ws.scenesList.length > 0) {
             selectedScenes = ws.scenesList;
@@ -5047,75 +5081,10 @@
           if (typeof checkReady === 'function') {
             checkReady();
           }
-          setTimeout(() => saveUserDraftState(), 120);
-        }
-
-        // Resume in-progress Voiceover job if page was refreshed during Voiceover generation
-        const voiceJobKey = `voice_job_${currentUser.normName}`;
-        const vJob = await new Promise((resolve) => {
-          const tx = db.transaction('workspaces', 'readonly');
-          const req = tx.objectStore('workspaces').get(voiceJobKey);
-          req.onsuccess = () => resolve(req.result || null);
-          req.onerror = () => resolve(null);
-        });
-        if (vJob && vJob.inProgress && !isGeneratingVoice && typeof window.generateVoiceoverFromScript === 'function') {
-          setTimeout(() => window.generateVoiceoverFromScript(vJob), 300);
         }
       } catch (e) {
         console.warn('Workspace restore warning:', e);
       }
-
-      // Resume in-progress Script or Prompts generation if page was refreshed
-      try {
-        const savedScriptJob = JSON.parse(localStorage.getItem(`vs_inprogress_script_${currentUser.normName}`) || 'null');
-        if (savedScriptJob && Array.isArray(savedScriptJob.partsCompleted) && !isGeneratingScript && typeof window.generateFullStoryScript === 'function') {
-          setTimeout(() => window.generateFullStoryScript(savedScriptJob), 350);
-        }
-      } catch (e) {}
-
-      try {
-        const savedPromptsJob = JSON.parse(localStorage.getItem(`vs_inprogress_prompts_${currentUser.normName}`) || 'null');
-        if (savedPromptsJob && savedPromptsJob.scriptText && Array.isArray(savedPromptsJob.completedChunks) && typeof window.generateGeminiPrompts === 'function') {
-          setTimeout(() => window.generateGeminiPrompts(savedPromptsJob.scriptText), 400);
-        }
-      } catch (e) {}
-
-      // Resume active or just-completed Localhost Video Render so Refresh NEVER loses the video!
-      if (typeof window.checkAndResumeActiveLocalRender === 'function') {
-        setTimeout(() => window.checkAndResumeActiveLocalRender(), 200);
-      }
-
-      if (!window.isIsolatedNewVideoTab && typeof window.refreshLiveFolderSavedBadgeUI === 'function') {
-        window.refreshLiveFolderSavedBadgeUI();
-        setTimeout(() => {
-          try {
-            window.refreshLiveFolderSavedBadgeUI();
-            if (!window.thisTabOwnsBotJobId) return;
-            const uEm = String((currentUser && (currentUser.email || currentUser.normName)) || '').trim().toLowerCase();
-            const prList = typeof parsePromptsListFromRawBox === 'function' ? parsePromptsListFromRawBox() : [];
-            const targetF = (activeNicheConfig && activeNicheConfig.save_folder_name) || folderName || 'new video images';
-            const savedSet = getPersistentSavedScenesForFolder(targetF);
-            if (uEm && uEm.includes('@') && prList.length > 0) {
-              fetch('/api/tts', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  action: 'bot_queue_sync_prompts',
-                  email: uEm,
-                  folderName: targetF,
-                  fileNameFormat: (document.getElementById('botFileNameFormatSelect') && document.getElementById('botFileNameFormatSelect').value) || (activeNicheConfig && activeNicheConfig.file_name_format) || '1',
-                  prompts: prList,
-                  grandTotal: prList.length,
-                  savedSceneNums: Array.from(savedSet)
-                })
-              }).catch(() => {});
-            }
-          } catch (e) {}
-        }, 450);
-      }
-
-      // Pull any cloud-repaired or cloud-synced history items & videos down to local IndexedDB
-      // Pure Localhost per-user workspace isolation active
     }
 
     async function syncActivityToServer({ incScript = false, incVideo = false, incVoice = false }) {
@@ -6867,271 +6836,8 @@
     }
 
     async function syncCloudDashboardDownToLocal() {
-      if (!currentUser || adminInspectingUserMode) return;
-      try {
-        const res = await fetch('/api/tts', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            action: 'get_my_cloud_dashboard',
-            email: currentUser.email || '',
-            name: currentUser.name || currentUser.normName || ''
-          })
-        });
-        const data = await res.json().catch(() => ({}));
-        const dash = (data && data.dashboard) || {};
-        const cloudHist = Array.isArray(dash.history_items) ? dash.history_items : [];
-        if (!cloudHist.length) return;
-
-        const db = await openHistoryDB();
-        const existing = await new Promise((resolve) => {
-          const tx = db.transaction('videos', 'readonly');
-          const req = tx.objectStore('videos').getAll();
-          req.onsuccess = () => resolve(req.result || []);
-          req.onerror = () => resolve([]);
-        });
-        const byId = new Map(existing.map(x => [x.id, x]));
-        let changed = false;
-
-        for (const ch of cloudHist) {
-          if (!ch || !ch.id) continue;
-          const loc = byId.get(ch.id);
-          if (!loc) {
-            const newRec = Object.assign({}, ch, {
-              userName: currentUser.normName,
-              userDisplayName: currentUser.name,
-              userEmail: currentUser.email || '',
-              userMode: currentUser.mode || 'google'
-            });
-            await new Promise((resolve) => {
-              const tx = db.transaction('videos', 'readwrite');
-              tx.objectStore('videos').put(newRec);
-              tx.oncomplete = resolve;
-              tx.onerror = resolve;
-            });
-            changed = true;
-          } else {
-            let rowUpdated = false;
-            const cloudScriptLen = String(ch.script || '').length;
-            const locScriptLen = String(loc.script || '').length;
-            const cloudPromptsLen = String(ch.promptsText || '').length;
-            const locPromptsLen = String(loc.promptsText || '').length;
-            const cloudScenesCnt = Number(ch.scenesCount || ch.sceneCount || 0);
-            const locScenesCnt = Number(loc.scenesCount || loc.sceneCount || 0);
-            const hasExpandedCloudProject =
-              cloudScriptLen > locScriptLen + 100 ||
-              cloudPromptsLen > locPromptsLen + 200 ||
-              cloudScenesCnt > locScenesCnt ||
-              (ch.durationMins && ch.durationMins !== loc.durationMins && cloudScenesCnt >= locScenesCnt);
-
-            if (hasExpandedCloudProject) {
-              loc.script = ch.script || loc.script;
-              loc.generatedScriptText = ch.generatedScriptText || ch.script || loc.generatedScriptText;
-              loc.promptsText = ch.promptsText || loc.promptsText;
-              loc.promptsBadge = ch.promptsBadge || loc.promptsBadge;
-              loc.scenesCount = cloudScenesCnt || loc.scenesCount;
-              loc.durationMins = ch.durationMins || loc.durationMins;
-              loc.voiceoverDuration = Number(ch.voiceoverDuration || ch.durationSec || loc.voiceoverDuration || 0);
-              if (ch.voiceover_url && (ch.voiceover_url !== loc.voiceover_url || Number(ch.voiceoverDuration || ch.durationSec || 0) > Number(loc.voiceoverDuration || 0) + 20 || !loc.voiceoverFileName || !String(loc.voiceoverFileName).includes('10m54s'))) {
-                loc.voiceover_url = ch.voiceover_url;
-                loc.voiceoverBlob = null;
-              }
-              if (ch.voiceoverFileName) {
-                loc.voiceoverFileName = ch.voiceoverFileName;
-              }
-              if (!loc.wordSyncedV10) {
-                loc.videoBlob = null;
-              }
-              rowUpdated = true;
-            }
-            if (ch.wordSyncedV10 && (!loc.wordSyncedV10 || loc.video_url !== ch.video_url)) {
-              loc.video_url = ch.video_url || loc.video_url;
-              loc.videoBlob = null;
-              loc.sizeMb = ch.sizeMb || loc.sizeMb;
-              loc.durationMins = ch.durationMins || loc.durationMins;
-              loc.promptsText = ch.promptsText || loc.promptsText;
-              loc.promptsBadge = ch.promptsBadge || loc.promptsBadge;
-              loc.script = ch.script || loc.script;
-              loc.wordSyncedV5 = true;
-              loc.wordSyncedV8 = true;
-              loc.wordSyncedV9 = true;
-              loc.wordSyncedV10 = true;
-              rowUpdated = true;
-            }
-            for (const k of ['video_url', 'voiceover_url', 'script', 'generatedScriptText', 'promptsText', 'promptsBadge']) {
-              if (!loc[k] && ch[k]) {
-                loc[k] = ch[k];
-                rowUpdated = true;
-              }
-            }
-            if (rowUpdated) {
-              await new Promise((resolve) => {
-                const tx = db.transaction('videos', 'readwrite');
-                tx.objectStore('videos').put(loc);
-                tx.oncomplete = resolve;
-                tx.onerror = resolve;
-              });
-              changed = true;
-            }
-          }
-        }
-        await renderHistorySidebar(currentHistoryId);
-
-        // Immediately apply cloud expanded project (168 prompts + 10m 54s voiceover + 12,433-char script) to the live Studio page on refresh!
-        const cloudWs = dash.active_workspace || {};
-        const topCloudItem = cloudHist[0] || {};
-        const syncedPromptsText = cloudWs.promptsText || topCloudItem.promptsText || '';
-        const syncedPromptsBadge = cloudWs.promptsBadge || topCloudItem.promptsBadge || '🔥 Total: 168 Images (Har 3-4 Sec Change • ~10.9 mins video • Strict 16:9 Spoken Sync)';
-        const syncedVidUrl = cloudWs.video_url || topCloudItem.video_url || '';
-        const syncedVoUrl = cloudWs.voiceover_url || topCloudItem.voiceover_url || '';
-        const syncedVoDuration = Number(cloudWs.voiceoverDuration || topCloudItem.voiceoverDuration || topCloudItem.durationSec || 654.0);
-        const syncedVoFileName = cloudWs.voiceoverFileName || topCloudItem.voiceoverFileName || 'Voiceover_Hale_Male_CrispMale_Full_10m54s.wav';
-        const syncedScript = cloudWs.script || topCloudItem.script || '';
-        const curDomScript = (document.getElementById('ttsScriptInput') && document.getElementById('ttsScriptInput').value) ? document.getElementById('ttsScriptInput').value.trim() : '';
-        const curDomPrompts = (document.getElementById('generatedPromptsBox') && document.getElementById('generatedPromptsBox').value) ? document.getElementById('generatedPromptsBox').value.trim() : '';
-
-        const shouldApplyExpandedCloudWorkspace =
-          !window.isIsolatedNewVideoTab &&
-          !currentHistoryId &&
-          Boolean(syncedScript && syncedScript.length > 200 && curDomScript.length === 0);
-
-        if (shouldApplyExpandedCloudWorkspace) {
-          if (syncedScript && syncedScript.length >= curDomScript.length) {
-            if (document.getElementById('ttsScriptInput')) {
-              document.getElementById('ttsScriptInput').value = syncedScript;
-            }
-            if (document.getElementById('promptScriptInput')) {
-              document.getElementById('promptScriptInput').value = syncedScript;
-            }
-            if (document.getElementById('generatedScriptBox')) {
-              document.getElementById('generatedScriptBox').value = syncedScript;
-            }
-            try { autoResizeScriptBoxes(); } catch (e) {}
-          }
-
-          if (syncedPromptsText && syncedPromptsText.length >= curDomPrompts.length) {
-            if (document.getElementById('promptsResultWrap')) {
-              document.getElementById('promptsResultWrap').style.display = 'block';
-            }
-            renderPromptsCardsUI(syncedPromptsText);
-            if (syncedPromptsBadge && document.getElementById('promptsCountBadge')) {
-              document.getElementById('promptsCountBadge').textContent = syncedPromptsBadge;
-            }
-          }
-
-          const scCnt = Number(cloudWs.scenesCount || topCloudItem.scenesCount || topCloudItem.sceneCount || 168);
-          const fNm = cloudWs.folderName || 'new video images';
-          if (scCnt > 0 && typeof window.refreshLiveFolderSavedBadgeUI === 'function') {
-            window.refreshLiveFolderSavedBadgeUI(fNm, scCnt);
-          }
-
-          // Automatically resume missing scenes (Image 97..168) in Gemini Extension once on refresh so user doesn't even have to click!
-          try {
-            const savedSetNow = getPersistentSavedScenesForFolder(fNm);
-            if (scCnt > 96 && savedSetNow.size >= 90 && savedSetNow.size < scCnt && !sessionStorage.getItem('vs_auto_resumed_168_job_v2')) {
-              sessionStorage.setItem('vs_auto_resumed_168_job_v2', '1');
-              setTimeout(() => {
-                try {
-                  if (typeof window.startGeminiAutoImageBot === 'function') {
-                    window.startGeminiAutoImageBot(true);
-                  }
-                } catch (e) {}
-              }, 1100);
-            }
-          } catch (e) {}
-
-          if (syncedVoUrl && (!voiceoverFile || syncedVoDuration > (Number(voiceoverDuration) || 0) + 20)) {
-            resolvePlayableCloudMediaUrl(syncedVoUrl, 'audio/wav').then(async (playableVo) => {
-              if (!playableVo) return;
-              try {
-                const rVo = await fetch(playableVo);
-                if (rVo.ok) {
-                  const bVo = await rVo.blob();
-                  applyVoiceoverUI(bVo, syncedVoFileName, syncedVoDuration || 654.0);
-                  await saveUserDraftState();
-                  if (currentHistoryId) {
-                    const tx = db.transaction('videos', 'readwrite');
-                    const store = tx.objectStore('videos');
-                    const req = store.get(currentHistoryId);
-                    req.onsuccess = () => {
-                      const rec = req.result;
-                      if (rec) {
-                        rec.voiceoverBlob = bVo;
-                        rec.voiceoverFileName = syncedVoFileName;
-                        rec.voiceoverDuration = syncedVoDuration || 654.0;
-                        rec.voiceover_url = syncedVoUrl;
-                        store.put(rec);
-                      }
-                    };
-                  }
-                  return;
-                }
-              } catch (e) {}
-              const readyBox = document.getElementById('voiceReadyBox');
-              const audioPreview = document.getElementById('voiceAudioPreview');
-              const dlVoiceBtn = document.getElementById('downloadVoiceBtn');
-              const aBox = document.getElementById('audioBox');
-              const aBadge = document.getElementById('audioBadge');
-              if (readyBox) readyBox.style.display = 'block';
-              if (audioPreview) audioPreview.src = playableVo;
-              if (dlVoiceBtn) {
-                dlVoiceBtn.href = playableVo;
-                dlVoiceBtn.download = syncedVoFileName;
-              }
-              if (aBox) aBox.classList.add('done');
-              if (aBadge) {
-                aBadge.style.display = 'inline-block';
-                aBadge.textContent = `✅ ${syncedVoFileName} (10m 54s)`;
-              }
-            }).catch(() => {});
-          }
-
-          await saveUserDraftState();
-
-          if (syncedVidUrl && (!currentVideoMeta || !currentVideoMeta.wordSyncedV10)) {
-            const vRes = document.getElementById('videoResult');
-            if (vRes) vRes.style.display = 'block';
-            const fName = (cloudWs.videoMeta && cloudWs.videoMeta.fileName) || topCloudItem.fileName || 'new_video_images_Spaced_Zoom_Video.mp4';
-            const szMb = (cloudWs.videoMeta && cloudWs.videoMeta.sizeMb) || topCloudItem.sizeMb || '42.50';
-            const dMins = (cloudWs.videoMeta && cloudWs.videoMeta.durationMins) || topCloudItem.durationMins || '10.90';
-            document.getElementById('savedLocationText').textContent =
-              `${fName} (${szMb} MB • ${dMins} mins • 100% Exact Word & Image Synced ✅)`;
-
-            const vid = document.getElementById('videoPreview');
-            const dlBtn = document.getElementById('manualDownloadBtn');
-            if (!String(syncedVidUrl).startsWith('CHUNKED_VIDEO::')) {
-              if (vid) vid.src = syncedVidUrl;
-              if (dlBtn) { dlBtn.href = syncedVidUrl; dlBtn.download = fName; }
-            }
-            resolvePlayableCloudMediaUrl(syncedVidUrl, 'video/mp4').then(async (playableVid) => {
-              if (!playableVid) return;
-              if (String(syncedVidUrl).startsWith('CHUNKED_VIDEO::')) {
-                if (vid) vid.src = playableVid;
-                if (dlBtn) { dlBtn.href = playableVid; dlBtn.download = fName; }
-              }
-              try {
-                const r = await fetch(playableVid);
-                if (r.ok) {
-                  const b = await r.blob();
-                  currentVideoBlob = b;
-                  currentVideoMeta = {
-                    fileName: fName,
-                    sizeMb: szMb,
-                    durationMins: dMins,
-                    cloudUrl: syncedVidUrl,
-                    dateFormatted: '100% Exact Word & Image Synced ✅',
-                    wordSyncedV5: true,
-                    wordSyncedV8: true,
-                    wordSyncedV9: true,
-                    wordSyncedV10: true
-                  };
-                  await saveUserDraftState();
-                }
-              } catch (e) {}
-            }).catch(() => {});
-          }
-        }
-      } catch (e) {}
+      // Disabled cloud-to-local auto-overwrite so old cloud scripts/prompts/audio/video NEVER pollute a New Video page!
+      return;
     }
 
     async function renderHistorySidebar(activeId = null) {
@@ -10770,6 +10476,12 @@ If this video helped you, subscribe to our channel and share it with a friend wh
     window.startNewVideoPage = async function() {
       newVideoResetEpoch++;
       cancelRenderRequested = true;
+      window.fullAutoPipelineCancelled = true;
+      window.fullAutoPipelineActive = false;
+      window.lastGeneratedScriptTopic = '';
+      window.lastGeneratedScriptWasFromChatGpt = false;
+      activeChatGptScriptResolve = null;
+
       if (typeof window.clearAllStudioUIAndState === 'function') {
         window.clearAllStudioUIAndState();
       }
@@ -10777,20 +10489,15 @@ If this video helped you, subscribe to our channel and share it with a friend wh
       if (window.selectedViralTopicQueue) window.selectedViralTopicQueue = [];
       if (typeof clearPersistentSavedScenesForFolder === 'function') {
         clearPersistentSavedScenesForFolder('new video images');
-        clearPersistentSavedScenesForFolder(folderName);
-      }
-      if (typeof window.clearAllStudioUIAndState === 'function') {
-        window.clearAllStudioUIAndState();
-      }
-      window.currentActiveTopicTitle = '';
-      if (window.selectedViralTopicQueue) window.selectedViralTopicQueue = [];
-      if (typeof clearPersistentSavedScenesForFolder === 'function') {
-        clearPersistentSavedScenesForFolder('new video images');
+        clearPersistentSavedScenesForFolder('VideoStudio_Scenes');
         clearPersistentSavedScenesForFolder(folderName);
       }
       isRendering = false;
       isGeneratingVoice = false;
       isGeneratingScript = false;
+
+      const autoProgBox = document.getElementById('fullAutoProgressBox');
+      if (autoProgBox) autoProgBox.style.display = 'none';
 
       const genBtn = document.getElementById('generateBtn');
       if (genBtn) genBtn.disabled = false;
@@ -10804,36 +10511,9 @@ If this video helped you, subscribe to our channel and share it with a friend wh
         pBtn.textContent = '✨ Generate Image Prompts (Dynamic 1–2s, 3–4s & 5–6s Scene Breakdown)';
       }
 
-      // Snapshot unsaved work ONLY if not already viewing an existing saved history item
-      const wasUnsavedDraft = !currentHistoryId;
-      const snapScript = (document.getElementById('ttsScriptInput').value || '').trim();
-      const snapPrompts = (document.getElementById('generatedPromptsBox').value || '').trim();
-      const snapPromptsBadge = (document.getElementById('promptsCountBadge').textContent || '').trim();
-      const snapTopic = document.getElementById('scriptTopicInput') ? (document.getElementById('scriptTopicInput').value || '').trim() : '';
-      const snapGenScript = document.getElementById('generatedScriptBox') ? (document.getElementById('generatedScriptBox').value || '').trim() : '';
-      const snapGenScriptBadge = document.getElementById('scriptStatsBadge') ? (document.getElementById('scriptStatsBadge').textContent || '').trim() : '';
-      const snapVideoBlob = currentVideoBlob;
-      const snapVideoMeta = currentVideoMeta;
-      const snapVoiceBlob = voiceoverFile;
-      const snapVoiceDur = voiceoverDuration;
-      const snapScenesCount = selectedScenes ? selectedScenes.length : 0;
-      const snapFolderName = folderName;
-
-      // Track Niche apply_scope video count when transitioning from a video project to a new blank video page
-      const previousPageHadWork = Boolean(currentHistoryId || snapVideoBlob || snapVoiceBlob || snapScenesCount > 0 || snapScript.length > 20 || snapPrompts.length > 20 || snapGenScript.length > 20);
-      if (previousPageHadWork) {
-        markFolderFormatUsedForVideo(activeNicheConfig.save_folder_name || snapFolderName, activeNicheConfig.file_name_format || '1');
-      }
-      if (previousPageHadWork && !activeNicheConfig.current_video_counted) {
-        markCurrentVideoCountedForNicheScope();
-      }
       activeNicheConfig.current_video_counted = false;
       saveUserNicheConfigToStorage();
       updateStudioNicheBannerUI();
-      checkAndShowDuplicateFolderWarning();
-      if (activeNicheConfig.apply_scope && activeNicheConfig.apply_scope !== 'all_videos' && activeNicheConfig.videos_remaining <= 0) {
-        openNicheSetupModal(true);
-      }
 
       // Mark this tab as an isolated New Video tab so background bot jobs in other tabs NEVER inject images or scripts into this page!
       window.isIsolatedNewVideoTab = true;
@@ -10849,6 +10529,7 @@ If this video helped you, subscribe to our channel and share it with a friend wh
       // IMMEDIATELY & SYNCHRONOUSLY clear the entire UI in 0ms!
       currentHistoryId = null;
       selectedScenes = [];
+      try { importedCloudBotScenes.clear(); } catch (e) {}
       try { ensuredDiskSaveScenes.clear(); } catch (e) {}
       folderName = 'Finance_Story';
       voiceoverFile = null;
@@ -10901,69 +10582,45 @@ If this video helped you, subscribe to our channel and share it with a friend wh
       const syncCtrl = document.getElementById('syncCustomControls');
       if (syncCtrl) syncCtrl.style.display = 'none';
 
-      // Clean up ONLY this tab's isolated draft/workspace so other open tabs keep their 161-scene workspace intact!
+      // Completely wipe all cached drafts & workspaces so New Video NEVER loads old cached scripts/prompts/audio!
       document.querySelectorAll('.history-item.active').forEach(el => el.classList.remove('active'));
       if (currentUser) {
-        const tabDraftKey = getTabScopedDraftKey(currentUser.normName);
-        localStorage.removeItem(tabDraftKey);
+        try {
+          const keysToPurge = [];
+          for (let i = 0; i < localStorage.length; i++) {
+            const k = localStorage.key(i);
+            if (k && /^(vs_draft_|vs_inprogress_|vs_saved_scenes_|vs_last_voice_|vs_voice_chunks_|vs_script_copied_|vs_copied_prompts_)/.test(k)) {
+              keysToPurge.push(k);
+            }
+          }
+          keysToPurge.forEach(k => { try { localStorage.removeItem(k); } catch (e) {} });
+        } catch (e) {}
         localStorage.setItem(`vs_view_${currentUser.normName}`, 'studio');
         window.location.hash = 'studio';
-      }
 
-      if (currentUser) {
+        const uEmailClean = String(currentUser.email || currentUser.normName || '').trim().toLowerCase();
+        if (uEmailClean) {
+          fetch('/api/tts', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'chatgpt_queue_clean', email: uEmailClean, clean: true })
+          }).catch(() => {});
+          fetch('/api/tts', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'bot_queue_clean', email: uEmailClean })
+          }).catch(() => {});
+        }
+
         try {
-          const tabWsKey = getTabScopedWorkspaceKey(currentUser.normName);
           const db = await openHistoryDB();
           await new Promise((resolve) => {
             const tx = db.transaction('workspaces', 'readwrite');
-            tx.objectStore('workspaces').delete(tabWsKey);
+            tx.objectStore('workspaces').clear();
             tx.oncomplete = resolve;
             tx.onerror = resolve;
           });
         } catch (e) {}
-
-        // If the previous screen had brand-new unsaved work (not already in History), archive it into History without touching current blank workspace
-        const hasNewWork = wasUnsavedDraft && Boolean(snapVideoBlob || snapVoiceBlob || snapScript.length > 20 || snapPrompts.length > 20 || snapGenScript.length > 20);
-        if (hasNewWork) {
-          try {
-            const db = await openHistoryDB();
-            const now = new Date();
-            let autoTitle = snapTopic || (snapFolderName && snapFolderName !== 'Finance_Story' ? snapFolderName : 'Story Project');
-            if (!snapTopic && (snapScript || snapGenScript)) {
-              const firstWords = (snapScript || snapGenScript).split(/\s+/).slice(0, 6).join(' ');
-              if (firstWords) autoTitle = firstWords + '...';
-            }
-            const item = {
-              id: 'vid_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7),
-              userName: currentUser.normName,
-              userDisplayName: currentUser.name,
-              userMode: currentUser.mode,
-              title: autoTitle,
-              scenesCount: snapScenesCount,
-              durationMins: snapVideoMeta ? snapVideoMeta.durationMins : (snapVoiceDur ? (snapVoiceDur / 60).toFixed(1) : '0.0'),
-              sizeMb: snapVideoMeta ? snapVideoMeta.sizeMb : (snapVoiceBlob ? (snapVoiceBlob.size / (1024 * 1024)).toFixed(2) : '0.1'),
-              fileName: snapVideoMeta ? snapVideoMeta.fileName : (snapVoiceBlob ? snapVoiceBlob.name : 'Project_Draft'),
-              dateFormatted: formatDayDateTime(now),
-              timestamp: now.getTime(),
-              videoBlob: snapVideoBlob || null,
-              voiceoverBlob: snapVoiceBlob || null,
-              voiceoverFileName: snapVoiceBlob ? snapVoiceBlob.name : '',
-              voiceoverDuration: snapVoiceDur || 0,
-              script: snapScript,
-              promptsText: snapPrompts,
-              promptsBadge: snapPromptsBadge,
-              scriptTopic: snapTopic,
-              generatedScriptText: snapGenScript,
-              scriptStatsBadge: snapGenScriptBadge
-            };
-            await new Promise((resolve) => {
-              const tx = db.transaction('videos', 'readwrite');
-              tx.objectStore('videos').put(item);
-              tx.oncomplete = resolve;
-              tx.onerror = resolve;
-            });
-          } catch (e) {}
-        }
         await renderHistorySidebar(null);
       }
 
@@ -11609,13 +11266,13 @@ If this video helped you, subscribe to our channel and share it with a friend wh
       const uEmail = getStrictLoggedInUserEmail();
       if (!uEmail) return '';
       const devTok = (typeof getDeviceToken === 'function' ? getDeviceToken() : 'pc') || 'pc';
-      return `vs_viral_queue_user_v4_${uEmail}__${devTok}`;
+      return `vs_viral_queue_user_v7_${uEmail}__${devTok}`;
     }
 
     function getViralQueueFallbackUserKey() {
       const uEmail = getStrictLoggedInUserEmail();
       if (!uEmail) return '';
-      return `vs_viral_queue_user_v4_${uEmail}`;
+      return `vs_viral_queue_user_v7_${uEmail}`;
     }
 
     function resetViralTopicsAndQueueUI() {
@@ -11701,14 +11358,14 @@ If this video helped you, subscribe to our channel and share it with a friend wh
 
         const isOwnerAbdulRafay = (uEmail === 'abdulrafay40023@gmail.com' || uEmail === 'abdulrafay73203@gmail.com');
         const defaultOwnerFiveTopics = [
-          { id: 1, title: "POV: You Replaced Your Entire Workflow with AI — Now Your Boss Thinks You're a Genius", hook: "Everyone thinks I'm pulling all-nighters to finish these projects, but in reality, I'm done by 11 AM and spending the rest of the day living my life.", script_type: "wealth_story" },
-          { id: 2, title: "POV: You Stopped Learning Trad-Skills and Started Mastering AI — Now You're Making 3x More", hook: "While my coworkers are still stuck in spreadsheets, I'm using AI to automate their entire week into a single afternoon of work.", script_type: "wealth_story" },
-          { id: 3, title: "POV: Your Friends Think You're Unemployed — But Your AI Side Hustle Just Hit $10k", hook: "They keep asking why I'm always at the coffee shop during the day, not realizing I'm quietly scaling an AI business that runs while I sleep.", script_type: "wealth_story" },
-          { id: 4, title: "POV: You Used AI to Predict Your Career Path — Now You're Retiring 20 Years Early", hook: "People laughed when I told them I was taking life advice from a machine, but now they're the ones clocking in while I'm booking my third vacation this year.", script_type: "wealth_story" },
-          { id: 5, title: "POV: You Look Like You're Working Hard — But Your AI Agent Is Doing 90% of the Job", hook: "The office thinks I'm a productivity machine, but the truth is I've outsourced my stress to an AI that doesn't know what burnout feels like.", script_type: "wealth_story" }
+          { id: 1, title: "POV: You Quit Your 9-to-5 to Trade Full-Time — Everyone Said You'd Be Broke in a Month", hook: "They told me I was throwing my life away, but they didn't see the screen where I made three months of my old salary before noon.", script_type: "wealth_story" },
+          { id: 2, title: "POV: Your Friends Think You're Unemployed — You're Quietly Clearing $10K a Week Trading", hook: "While they're complaining about their Monday morning meetings, I'm closing my laptop by 10 AM with a profit that pays for their entire year.", script_type: "wealth_story" },
+          { id: 3, title: "POV: You Stopped Following \"Guru\" Alerts — You Built a $200k Portfolio Trading Your Own Strategy", hook: "I stopped paying for signals and started trusting my own charts, and that's exactly when the red days finally turned green.", script_type: "wealth_story" },
+          { id: 4, title: "POV: You Look Like You're Struggling in Your 20s — But You've Secretly Saved $450,000 Trading", hook: "They still ask me when I'm going to get a \"real job,\" not realizing I've already secured the financial freedom they're working forty years to achieve.", script_type: "wealth_story" },
+          { id: 5, title: "POV: You Lost Your First $5,000 Trading — Then You Realized Why Everyone Else Fails", hook: "That first big loss felt like the end of the world, but it was actually the expensive tuition I needed to stop gambling and start trading like a business.", script_type: "wealth_story" }
         ];
 
-        // ONLY restore the 5 AI + @MoneyLifePOV topics for Abdul Rafay's own account — NEVER for Jennifer or any other user!
+        // ONLY restore the 5 Trading + @MoneyLifePOV topics for Abdul Rafay's own account — NEVER for Jennifer or any other user!
         let parsedExisting = null;
         if (raw) {
           try { parsedExisting = JSON.parse(raw); } catch (e) { parsedExisting = null; }
@@ -11724,9 +11381,9 @@ If this video helped you, subscribe to our channel and share it with a friend wh
           const seededState = {
             ownerEmail: uEmail,
             deviceToken: typeof getDeviceToken === 'function' ? getDeviceToken() : '',
-            keywords: 'AI',
+            keywords: 'trading',
             youtubeRef: 'https://www.youtube.com/@MoneyLifePOV',
-            durationMins: '10',
+            durationMins: '12',
             discoveredViralTopicsList: defaultOwnerFiveTopics,
             selectedViralTopicQueue: [],
             completedViralQueuePositions: [],
@@ -11752,8 +11409,9 @@ If this video helped you, subscribe to our channel and share it with a friend wh
         if (isOwnerAbdulRafay && (!Array.isArray(st.discoveredViralTopicsList) || st.discoveredViralTopicsList.length === 0)) {
           st.discoveredViralTopicsList = defaultOwnerFiveTopics;
           st.topicsWrapVisible = true;
-          if (!st.keywords) st.keywords = 'AI';
+          if (!st.keywords) st.keywords = 'trading';
           if (!st.youtubeRef) st.youtubeRef = 'https://www.youtube.com/@MoneyLifePOV';
+          if (!st.durationMins) st.durationMins = '12';
           if (!st.lastYoutubeResearchBanner) {
             st.lastYoutubeResearchBanner = '📺 <b>5 Best High-CTR YouTube Viral Topics Ready!</b> Jis topic ke liye video banani hai koi <b>1 Topic</b> select karein:';
           }
@@ -11900,12 +11558,10 @@ If this video helped you, subscribe to our channel and share it with a friend wh
 
     window.getCompletedTopicsStorageKey = function() {
       const uEmail = (typeof getStrictLoggedInUserEmail === 'function' ? getStrictLoggedInUserEmail() : '') || 'default';
-      return 'vs_completed_topic_titles_v2_' + uEmail;
+      return 'vs_completed_topic_titles_v7_' + uEmail;
     };
 
     window.getCompletedViralTitlesMap = function() {
-      const uEmail = (typeof getStrictLoggedInUserEmail === 'function' ? getStrictLoggedInUserEmail() : '');
-      const isOwnerAbdulRafay = (uEmail === 'abdulrafay40023@gmail.com' || uEmail === 'abdulrafay73203@gmail.com');
       let map = {};
       try {
         const raw = localStorage.getItem(window.getCompletedTopicsStorageKey());
@@ -11914,24 +11570,6 @@ If this video helped you, subscribe to our channel and share it with a friend wh
           if (parsed && typeof parsed === 'object') map = parsed;
         }
       } catch (e) {}
-
-      if (isOwnerAbdulRafay) {
-        const defaultDone = [
-          "POV: You Replaced Your Entire Workflow with AI — Now Your Boss Thinks You're a Genius",
-          "POV: Your Friends Think You're Unemployed — But Your AI Side Hustle Just Hit $10k"
-        ];
-        let changed = false;
-        defaultDone.forEach(t => {
-          const k = window.normalizeTopicTitleKey(t);
-          if (k && map[k] === undefined) {
-            map[k] = true;
-            changed = true;
-          }
-        });
-        if (changed) {
-          try { localStorage.setItem(window.getCompletedTopicsStorageKey(), JSON.stringify(map)); } catch (e) {}
-        }
-      }
       return map;
     };
 
@@ -12215,7 +11853,7 @@ STRICT RULES:
             if (pRes.ok) {
               const pData = await pRes.json();
               const cJob = pData && pData.job ? pData.job : null;
-              if (cJob && (!cJob.job_id || cJob.job_id === jobId)) {
+              if (cJob && cJob.job_id === jobId) {
                 const jobStatus = String(cJob.status || '').toLowerCase();
                 const jobStatusText = String(cJob.statusText || '');
                 const curScript = String(cJob.scriptText || cJob.script_text || '').trim();
