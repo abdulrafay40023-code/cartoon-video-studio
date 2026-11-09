@@ -1423,6 +1423,12 @@
                 📂 Select Folder
               </button>
             </div>
+            <div style="display:flex; gap:6px; align-items:center; margin-top:6px; flex-wrap:wrap;">
+              <span style="font-size:11px; color:#94a3b8; font-weight:700;">1-Click Quick Select:</span>
+              <button type="button" onclick="applyPickedFolderName('office')" style="padding:3px 9px; border-radius:6px; background:#1e293b; border:1px solid #334155; color:#38bdf8; font-size:11.5px; font-weight:800; cursor:pointer;">office</button>
+              <button type="button" onclick="applyPickedFolderName('trading_scenes')" style="padding:3px 9px; border-radius:6px; background:#1e293b; border:1px solid #334155; color:#38bdf8; font-size:11.5px; font-weight:800; cursor:pointer;">trading_scenes</button>
+              <button type="button" onclick="applyPickedFolderName('finance_scenes')" style="padding:3px 9px; border-radius:6px; background:#1e293b; border:1px solid #334155; color:#38bdf8; font-size:11.5px; font-weight:800; cursor:pointer;">finance_scenes</button>
+            </div>
           </div>
 
           <!-- 3B: File Naming Format Pills (1, 2, 3 | image 1, image 2 | i 1, i 2, i 3) -->
@@ -2984,7 +2990,7 @@
 
       // Step 3: PC Save Folder & Image Naming Format
       const nFolderInput = document.getElementById('nicheModalFolderNameInput');
-      if (nFolderInput && activeNicheConfig.save_folder_name && document.activeElement !== nFolderInput) {
+      if (nFolderInput && activeNicheConfig.save_folder_name) {
         nFolderInput.value = activeNicheConfig.save_folder_name;
       }
       const curFmt = activeNicheConfig.file_name_format || '';
@@ -3132,8 +3138,9 @@
     }
 
     window.pickBotSaveFolderFromPC = async function() {
-      // 1. Try Chrome native showDirectoryPicker WITHOUT { mode: 'readwrite' }
-      // This opens standard folder chooser smoothly without security blocks or permission warnings!
+      const curVal = (document.getElementById('nicheModalFolderNameInput') || {}).value || activeNicheConfig.save_folder_name || '';
+
+      // 1. Try Chrome native showDirectoryPicker
       if (typeof window.showDirectoryPicker === 'function') {
         try {
           const dirHandle = await window.showDirectoryPicker();
@@ -3143,19 +3150,17 @@
             return;
           }
         } catch (err) {
-          if (err && err.name === 'AbortError') {
-            // User cancelled in native dialog
-            return;
-          }
           console.warn('showDirectoryPicker error:', err);
         }
       }
 
-      // 2. Fallback: Open file dialog with webkitdirectory
-      const inp = document.getElementById('botPickFolderInput');
-      if (inp) {
-        inp.value = '';
-        inp.click();
+      // 2. Direct reliable prompt: User can type or confirm the exact folder name instantly
+      const manualName = prompt(
+        'Apne PC ke folder ka naam likhein jo aap select karna chahte hain (e.g. office ya trading_scenes):',
+        (curVal && curVal !== 'VideoStudio_Scenes') ? curVal : 'office'
+      );
+      if (manualName && manualName.trim()) {
+        applyPickedFolderName(manualName.trim());
       }
     };
 
