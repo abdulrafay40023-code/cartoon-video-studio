@@ -4093,6 +4093,32 @@ class handler(BaseHTTPRequestHandler):
         self.send_header("Access-Control-Allow-Headers", "Content-Type")
         self.end_headers()
 
+    def do_GET(self):
+        parsed = urllib.parse.urlparse(self.path)
+        qs = urllib.parse.parse_qs(parsed.query)
+        action = qs.get("action", [""])[0]
+        if action in ("download_extension", "get_extension"):
+            zip_p = os.path.join(os.path.dirname(os.path.dirname(__file__)), "Gemini_Auto_Image_Extension.zip")
+            if not os.path.exists(zip_p):
+                zip_p = os.path.join(os.getcwd(), "Gemini_Auto_Image_Extension.zip")
+            if os.path.exists(zip_p):
+                with open(zip_p, "rb") as f:
+                    data = f.read()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/zip")
+                self.send_header("Content-Disposition", 'attachment; filename="Gemini_Auto_Image_Extension.zip"')
+                self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
+                self.send_header("Pragma", "no-cache")
+                self.send_header("Expires", "0")
+                self.send_header("Content-Length", str(len(data)))
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.end_headers()
+                self.wfile.write(data)
+                return
+            self._send_json(404, {"error": "Extension zip not found"})
+            return
+        self._send_json(200, {"ok": True, "service": "Video Studio TTS & Storage Engine"})
+
     def do_POST(self):
         try:
             length = int(self.headers.get("Content-Length", "0"))

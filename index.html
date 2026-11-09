@@ -1411,6 +1411,8 @@
                 placeholder="Folder select karein ya naam likhein (e.g. Video_1_Scenes)..."
                 oninput="handleNicheFolderInput(this.value)"
                 onchange="handleNicheFolderInput(this.value)"
+                onblur="handleNicheFolderInput(this.value.trim())"
+                onkeydown="if(event.key === 'Enter'){ event.preventDefault(); this.blur(); }"
                 style="flex:1; padding:8px 11px; border-radius:8px; background:#050811; border:1px solid rgba(16,185,129,0.5); color:#fff; font-size:13px; font-weight:700; outline:none;"
               />
               <button
@@ -1827,7 +1829,7 @@
           <!-- 1-CLICK DOWNLOAD EXTENSION (.ZIP) BUTTON -->
           <div id="oneClickExtConnectBar" style="display:flex; align-items:center; justify-content:flex-start;">
             <a
-              href="/Gemini_Auto_Image_Extension.zip"
+              href="/Gemini_Auto_Image_Extension.zip?v=20261109_v2"
               download="Gemini_Auto_Image_Extension.zip"
               style="display:inline-flex; align-items:center; gap:8px; padding:10px 22px; border-radius:11px; border:1.5px solid #10b981; background:linear-gradient(135deg, #10b981, #059669); color:#fff; font-size:13.5px; font-weight:900; text-decoration:none; cursor:pointer; box-shadow:0 6px 18px rgba(16,185,129,0.35);"
             >
@@ -2208,7 +2210,7 @@
                   <span>1-Click Auto Image Generator (Gemini Ultra Browser Bot)</span>
                 </div>
                 <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
-                  <a href="/Gemini_Auto_Image_Extension.zip" download="Gemini_Auto_Image_Extension.zip" style="background:linear-gradient(135deg,#10b981,#059669); border:1px solid #34d399; color:#fff; font-size:11.5px; font-weight:900; padding:5px 12px; border-radius:7px; text-decoration:none;">⬇️ Download Extension</a>
+                  <a href="/Gemini_Auto_Image_Extension.zip?v=20261109_v2" download="Gemini_Auto_Image_Extension.zip" style="background:linear-gradient(135deg,#10b981,#059669); border:1px solid #34d399; color:#fff; font-size:11.5px; font-weight:900; padding:5px 12px; border-radius:7px; text-decoration:none;">⬇️ Download Extension</a>
                   <button type="button" onclick="toggleGeminiBotSetupGuide()" style="background:rgba(148,163,184,0.15); border:1px solid #475569; color:#cbd5e1; font-size:11px; font-weight:800; padding:4px 9px; border-radius:7px; cursor:pointer;">❓ Guide</button>
                 </div>
               </div>
@@ -2813,12 +2815,24 @@
     };
 
     window.handleNicheFolderInput = function(val) {
-      const clean = String(val || '').replace(/[^a-zA-Z0-9_\- ]+/g, '_').trim();
-      activeNicheConfig.save_folder_name = clean;
+      const clean = String(val || '').replace(/[^a-zA-Z0-9_\- ]+/g, '_');
+      activeNicheConfig.save_folder_name = clean.trim();
       const studioFInput = document.getElementById('botCustomFolderNameInput');
-      if (studioFInput && clean) studioFInput.value = clean;
+      if (studioFInput) studioFInput.value = clean.trim() || clean;
       saveUserNicheConfigToStorage();
-      syncNicheSetupModalUI();
+
+      // Real-time update of badge:
+      const curFmt = activeNicheConfig.file_name_format || '1';
+      const folderBadge = document.getElementById('nicheModalFolderSavedBadge');
+      if (folderBadge) {
+        if (activeNicheConfig.save_folder_name && curFmt) {
+          folderBadge.textContent = `✅ Images Save Hongi: Downloads/${activeNicheConfig.save_folder_name}/ (${curFmt}.png, ${curFmt.replace('1', '2')}.png...)`;
+          folderBadge.style.color = '#34d399';
+        } else {
+          folderBadge.textContent = '⚠️ PC Save Folder aur Image Naming Format (1, 2, 3 / image 1 / i 1) select karna zaroori hai';
+          folderBadge.style.color = '#f87171';
+        }
+      }
       updateStudioNicheBannerUI();
       checkAndShowDuplicateFolderWarning();
     };
@@ -2970,7 +2984,7 @@
 
       // Step 3: PC Save Folder & Image Naming Format
       const nFolderInput = document.getElementById('nicheModalFolderNameInput');
-      if (nFolderInput && activeNicheConfig.save_folder_name && nFolderInput.value !== activeNicheConfig.save_folder_name) {
+      if (nFolderInput && activeNicheConfig.save_folder_name && document.activeElement !== nFolderInput) {
         nFolderInput.value = activeNicheConfig.save_folder_name;
       }
       const curFmt = activeNicheConfig.file_name_format || '';
@@ -3118,29 +3132,39 @@
     }
 
     window.pickBotSaveFolderFromPC = async function() {
-      // 1. Use Chrome's native Directory Picker first — works 100% on EMPTY folders and grants direct write access!
+      // 1. Try Chrome native showDirectoryPicker WITHOUT { mode: 'readwrite' }
+      // This opens standard folder chooser smoothly without security blocks or permission warnings!
       if (typeof window.showDirectoryPicker === 'function') {
         try {
-          const dirHandle = await window.showDirectoryPicker({ mode: 'readwrite' });
+          const dirHandle = await window.showDirectoryPicker();
           if (dirHandle && dirHandle.name) {
             window.selectedBotSaveDirHandle = dirHandle;
             applyPickedFolderName(dirHandle.name);
             return;
           }
         } catch (err) {
-          // If user clicked Cancel on native dialog, just return without opening fallback dialog
-          if (err && err.name === 'AbortError') return;
+          if (err && err.name === 'AbortError') {
+            // User cancelled in native dialog
+            return;
+          }
+          console.warn('showDirectoryPicker error:', err);
         }
       }
-      // 2. Fallback for browsers without showDirectoryPicker
+
+      // 2. Fallback: Open file dialog with webkitdirectory
       const inp = document.getElementById('botPickFolderInput');
-      if (inp) inp.click();
+      if (inp) {
+        inp.value = '';
+        inp.click();
+      }
     };
 
     window.handleBotFolderPickerSelect = function(files) {
       let pickedName = '';
-      if (files && files.length > 0 && files[0].webkitRelativePath) {
-        pickedName = files[0].webkitRelativePath.split('/')[0] || '';
+      if (files && files.length > 0) {
+        if (files[0].webkitRelativePath) {
+          pickedName = files[0].webkitRelativePath.split('/')[0] || '';
+        }
       }
       if (!pickedName) {
         const inp = document.getElementById('botPickFolderInput');
@@ -3149,8 +3173,19 @@
           pickedName = parts[parts.length - 1] || '';
         }
       }
-      // Even if an empty folder was selected in fallback mode, always accept it!
-      applyPickedFolderName(pickedName || activeNicheConfig.save_folder_name || 'new_video_images');
+      // If folder was empty or browser couldn't extract the name automatically, prompt user immediately:
+      if (!pickedName) {
+        const userTyped = prompt(
+          'Aap ne jo folder select kiya hai ya naya banaya hai, uska naam enter karein (e.g. trading ya office):',
+          activeNicheConfig.save_folder_name || 'VideoStudio_Scenes'
+        );
+        if (userTyped && userTyped.trim()) {
+          pickedName = userTyped.trim();
+        }
+      }
+      if (pickedName) {
+        applyPickedFolderName(pickedName);
+      }
     };
 
     function updateStudioNicheBannerUI() {
@@ -12259,7 +12294,7 @@ STRICT RULES:
         await window.oneClickConnectMyGmailToExtension(false);
       }
       const userEm = (strictEmail && strictEmail.includes('@')) ? strictEmail : '';
-      const zipUrl = window.location.origin + '/Gemini_Auto_Image_Extension.zip';
+      const zipUrl = window.location.origin + '/Gemini_Auto_Image_Extension.zip?v=20261109_v2';
 
       // Build a 1-Click Windows Auto-Installer (.bat) that downloads the Extension to C:\VideoStudio_Extension, pre-binds Jennifer + User Gmail, auto-enables Developer Mode across ALL Chrome Profiles (including Jennifer's Chrome Profile), patches Chrome shortcuts, and opens Jennifer's Chrome profile!
       const batLines = [
@@ -12274,7 +12309,7 @@ STRICT RULES:
         'set "EXT_DIR=C:\\VideoStudio_Extension"',
         'if not exist "%EXT_DIR%" mkdir "%EXT_DIR%"',
         'echo [1/3] Downloading & Extracting Permanent Extension to C:\\VideoStudio_Extension ...',
-        `powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='SilentlyContinue'; [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -Uri '${zipUrl}' -OutFile '$env:TEMP\\vs_ext.zip'; Expand-Archive -Path '$env:TEMP\\vs_ext.zip' -DestinationPath 'C:\\VideoStudio_Extension' -Force; $dlExt = Join-Path $env:USERPROFILE 'Downloads\\Gemini_Auto_Image_Extension'; if (Test-Path $dlExt) { Expand-Archive -Path '$env:TEMP\\vs_ext.zip' -DestinationPath $dlExt -Force }; $em = if ('${userEm}' -ne '') { '${userEm}' } else { 'abdulrafay40023@gmail.com' }; foreach ($f in @('background.js','gemini_bot.js','chatgpt_bot.js')) { $p = Join-Path 'C:\\VideoStudio_Extension' $f; if (Test-Path $p) { $c = Get-Content $p -Raw; $c = $c -replace \"const PRECONNECTED_DEFAULT_EMAIL = '[^']*';\", \"const PRECONNECTED_DEFAULT_EMAIL = '$em';\"; Set-Content $p -Value $c -Encoding UTF8 } }; Set-Clipboard -Value 'C:\\VideoStudio_Extension'; $chromeExe = (Get-ItemProperty 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths\\chrome.exe' -ErrorAction SilentlyContinue).'(default)'; if (-not $chromeExe) { $chromeExe = 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe' }; $ws = New-Object -ComObject WScript.Shell; foreach ($lnkDir in @([Environment]::GetFolderPath('Desktop'), [Environment]::GetFolderPath('CommonDesktopDirectory'), (Join-Path $env:APPDATA 'Microsoft\\Internet Explorer\\Quick Launch\\User Pinned\\TaskBar'))) { if (Test-Path $lnkDir) { Get-ChildItem -Path $lnkDir -Filter '*.lnk' | ForEach-Object { try { $s = $ws.CreateShortcut($_.FullName); if ($s.TargetPath -match 'chrome\\.exe' -and $s.Arguments -notmatch 'VideoStudio_Extension') { $s.Arguments = ($s.Arguments + ' --load-extension=\\"C:\\VideoStudio_Extension\\"').Trim(); $s.Save() } } catch {} } } }; $deskLnk = $ws.CreateShortcut((Join-Path ([Environment]::GetFolderPath('Desktop')) 'Video Studio Gemini Bot.lnk')); $deskLnk.TargetPath = $chromeExe; $deskLnk.Arguments = '--load-extension=\\"C:\\VideoStudio_Extension\\" https://gemini.google.com/app https://chatgpt.com/'; $deskLnk.Save(); Start-Process $chromeExe -ArgumentList ('--load-extension=\\"C:\\VideoStudio_Extension\\" chrome://extensions https://gemini.google.com/app https://chatgpt.com/')"`,
+        `powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='SilentlyContinue'; [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -Uri '${zipUrl}' -OutFile '$env:TEMP\\vs_ext.zip'; Expand-Archive -Path '$env:TEMP\\vs_ext.zip' -DestinationPath 'C:\\VideoStudio_Extension' -Force; if (Test-Path 'C:\\VideoStudio_Extension\\Gemini_Auto_Image_Extension\\manifest.json') { Get-ChildItem -Path 'C:\\VideoStudio_Extension\\Gemini_Auto_Image_Extension\\*' | Move-Item -Destination 'C:\\VideoStudio_Extension' -Force; Remove-Item -Path 'C:\\VideoStudio_Extension\\Gemini_Auto_Image_Extension' -Recurse -Force }; $dlExt = Join-Path $env:USERPROFILE 'Downloads\\Gemini_Auto_Image_Extension'; if (Test-Path $dlExt) { Expand-Archive -Path '$env:TEMP\\vs_ext.zip' -DestinationPath $dlExt -Force }; $em = if ('${userEm}' -ne '') { '${userEm}' } else { 'abdulrafay40023@gmail.com' }; foreach ($f in @('background.js','gemini_bot.js','chatgpt_bot.js')) { $p = Join-Path 'C:\\VideoStudio_Extension' $f; if (Test-Path $p) { $c = Get-Content $p -Raw; $c = $c -replace \"const PRECONNECTED_DEFAULT_EMAIL = '[^']*';\", \"const PRECONNECTED_DEFAULT_EMAIL = '$em';\"; Set-Content $p -Value $c -Encoding UTF8 } }; Set-Clipboard -Value 'C:\\VideoStudio_Extension'; $chromeExe = (Get-ItemProperty 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths\\chrome.exe' -ErrorAction SilentlyContinue).'(default)'; if (-not $chromeExe) { $chromeExe = 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe' }; $ws = New-Object -ComObject WScript.Shell; foreach ($lnkDir in @([Environment]::GetFolderPath('Desktop'), [Environment]::GetFolderPath('CommonDesktopDirectory'), (Join-Path $env:APPDATA 'Microsoft\\Internet Explorer\\Quick Launch\\User Pinned\\TaskBar'))) { if (Test-Path $lnkDir) { Get-ChildItem -Path $lnkDir -Filter '*.lnk' | ForEach-Object { try { $s = $ws.CreateShortcut($_.FullName); if ($s.TargetPath -match 'chrome\\.exe' -and $s.Arguments -notmatch 'VideoStudio_Extension') { $s.Arguments = ($s.Arguments + ' --load-extension=\\"C:\\VideoStudio_Extension\\"').Trim(); $s.Save() } } catch {} } } }; $deskLnk = $ws.CreateShortcut((Join-Path ([Environment]::GetFolderPath('Desktop')) 'Video Studio Gemini Bot.lnk')); $deskLnk.TargetPath = $chromeExe; $deskLnk.Arguments = '--load-extension=\\"C:\\VideoStudio_Extension\\" https://gemini.google.com/app https://chatgpt.com/'; $deskLnk.Save(); Start-Process $chromeExe -ArgumentList ('--load-extension=\\"C:\\VideoStudio_Extension\\" chrome://extensions https://gemini.google.com/app https://chatgpt.com/')"`,
         'echo [2/3] Developer Mode ON + Chrome Profile Opened!',
         'echo [3/3] Path C:\\VideoStudio_Extension Copied to Clipboard!',
         'echo.',
