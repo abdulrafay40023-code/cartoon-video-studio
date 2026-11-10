@@ -10122,38 +10122,7 @@ If this video helped you, subscribe to our channel and share it with a friend wh
           } else {
             timeSinceLastZoom += dur;
           }
-
-          // Pre-render each scene image onto a crystal-clear 1920x1080 HD master canvas once so GPU affine zoom never pixelates!
-          let hdCanvas = loadedImages[i];
-          try {
-            const rawImg = loadedImages[i];
-            if (rawImg && rawImg.width > 0 && rawImg.height > 0) {
-              const offC = document.createElement('canvas');
-              offC.width = 1920;
-              offC.height = 1080;
-              const offCtx = offC.getContext('2d');
-              offCtx.imageSmoothingEnabled = true;
-              offCtx.imageSmoothingQuality = 'high';
-              const targetAspect = 1920 / 1080;
-              const imgAspect = rawImg.width / rawImg.height;
-              let baseW = rawImg.width;
-              let baseH = rawImg.height;
-              if (Math.abs(imgAspect - targetAspect) > 0.08) {
-                if (imgAspect > targetAspect) {
-                  baseW = rawImg.height * targetAspect;
-                  baseH = rawImg.height;
-                } else {
-                  baseW = rawImg.width;
-                  baseH = rawImg.width / targetAspect;
-                }
-              }
-              const sx0 = (rawImg.width - baseW) / 2;
-              const sy0 = (rawImg.height - baseH) / 2;
-              offCtx.drawImage(rawImg, sx0, sy0, baseW, baseH, 0, 0, 1920, 1080);
-              hdCanvas = offC;
-            }
-          } catch (e) {}
-
+          // Zero-RAM: Use loaded scene image directly without allocating 228 redundant 1080p offscreen canvases!
           timeline.push({
             idx: i,
             startSec,
@@ -10164,7 +10133,7 @@ If this video helped you, subscribe to our channel and share it with a friend wh
             dur,
             hasZoom,
             text: al.text || '',
-            img: hdCanvas
+            img: loadedImages[i]
           });
         }
 
@@ -10230,8 +10199,8 @@ If this video helped you, subscribe to our channel and share it with a friend wh
         const chunks = [];
         recorder = new MediaRecorder(combinedStream, selectedMime ? {
           mimeType: selectedMime,
-          videoBitsPerSecond: 24000000
-        } : { videoBitsPerSecond: 24000000 });
+          videoBitsPerSecond: 8000000
+        } : { videoBitsPerSecond: 8000000 });
 
         recorder.ondataavailable = (e) => {
           if (e.data && e.data.size > 0) chunks.push(e.data);
@@ -10245,7 +10214,7 @@ If this video helped you, subscribe to our channel and share it with a friend wh
           try { await audioCtx.resume(); } catch (e) {}
         }
 
-        recorder.start();
+        recorder.start(1000);
         const startAudioTime = audioCtx.currentTime;
         const startWallMs = performance.now();
         voSource.start(startAudioTime);
