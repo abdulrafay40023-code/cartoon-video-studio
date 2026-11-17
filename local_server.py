@@ -195,16 +195,19 @@ def align_scenes_dp(scene_scripts: list, whisper_words: list, total_dur: float) 
     cur_w = 0
     for i in range(n_scenes - 1):
         toks = sc_tokens[i]
+        next_toks = sc_tokens[i + 1]
         rem_scenes = n_scenes - i
         rem_words = W - cur_w
         expected_len = max(1, round(rem_words / float(rem_scenes)))
         
         last_tok = toks[-1] if toks else ""
         second_last_tok = toks[-2] if len(toks) >= 2 else ""
+        next_first_tok = next_toks[0] if next_toks else ""
+        next_second_tok = next_toks[1] if len(next_toks) >= 2 else ""
 
         # Search window for end of scene i
-        search_start = max(cur_w, cur_w + len(toks) - 5)
-        search_end = min(W - (n_scenes - 1 - i), cur_w + max(len(toks) * 2, expected_len * 2) + 8)
+        search_start = max(cur_w, cur_w + len(toks) - 6)
+        search_end = min(W - (n_scenes - 1 - i), cur_w + max(len(toks) * 2, expected_len * 2) + 10)
 
         best_j = min(W - (n_scenes - 1 - i), max(cur_w, cur_w + len(toks) - 1))
         best_score = -1e9
@@ -214,27 +217,28 @@ def align_scenes_dp(scene_scripts: list, whisper_words: list, total_dur: float) 
                 break
             score = 0.0
             
-            # Match last token
-            if last_tok and w_norms[j] == last_tok:
-                score += 8.0
-            elif last_tok and len(last_tok) >= 4 and (last_tok in w_norms[j] or w_norms[j] in last_tok):
-                score += 5.0
-                
-            # Match second last token
-            if j > 0 and second_last_tok and w_norms[j-1] == second_last_tok:
-                score += 4.0
+            # Match last & second-last token of current scene
+            score += word_sim(last_tok, w_norms[j]) * 9.0
+            if j > 0 and second_last_tok:
+                score += word_sim(second_last_tok, w_norms[j - 1]) * 5.0
 
-            # Pause bonus after punctuation or acoustic gap
-            gap = max(0.0, whisper_words[j]["start"] - whisper_words[j - 1]["end"]) if j > 0 else 0.0
-            score += min(3.0, gap * 4.0)
-            prev_w = str(whisper_words[j]["word"] or "")
+            # Match first & second token of next scene
+            if j + 1 < W and next_first_tok:
+                score += word_sim(next_first_tok, w_norms[j + 1]) * 8.5
+            if j + 2 < W and next_second_tok:
+                score += word_sim(next_second_tok, w_norms[j + 2]) * 4.5
+
+            # Pause bonus AFTER word j (between end of scene i and start of scene i+1)
+            gap = max(0.0, whisper_words[j + 1]["start"] - whisper_words[j]["end"]) if j + 1 < W else 0.0
+            score += min(3.5, gap * 4.5)
+            prev_w = str(whisper_words[j]["word"] or "").strip()
             if prev_w.endswith((".", "!", "?", '."', '!"', '?"')):
                 score += 2.5
             elif prev_w.endswith((",", ";", ":", "—", "–")):
                 score += 1.2
 
             # Distance penalty from expected length
-            dist_pen = abs((j - cur_w + 1) - len(toks)) * 0.35
+            dist_pen = abs((j - cur_w + 1) - len(toks)) * 0.45
             score -= dist_pen
 
             if score > best_score:
