@@ -502,7 +502,7 @@ def render_single_scene_clip(task: dict):
                     [zoom, 0.0, 960.0 * (1.0 - zoom)],
                     [0.0, zoom, 540.0 * (1.0 - zoom)],
                 ])
-                zoomed = cv2.warpAffine(base_img, M, (1920, 1080), flags=cv2.INTER_LANCZOS4, borderMode=cv2.BORDER_REPLICATE)
+                zoomed = cv2.warpAffine(base_img, M, (1920, 1080), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
 
             sub_data = get_subtitle_data(active_sub) if active_sub else None
             final_frame = blend_sub(zoomed, sub_data)
@@ -680,9 +680,9 @@ def run_background_video_render(user_key: str, job_id: str):
         if bgm_path and os.path.exists(bgm_path):
             fade_out_st = max(4.0, total_dur - 4.0)
             af_filter = (
-                f"[1:a]volume=1.0[vo];"
-                f"[2:a]volume=0.09,afade=t=in:st=0:d=3,afade=t=out:st={fade_out_st:.2f}:d=4[bgm];"
-                f"[vo][bgm]amix=inputs=2:duration=first:dropout_transition=2[aout]"
+                f"[1:a]volume=2.2,alimiter=limit=0.96:attack=5:release=50[vo];"
+                f"[2:a]volume=0.22,afade=t=in:st=0:d=3,afade=t=out:st={fade_out_st:.2f}:d=4[bgm];"
+                f"[vo][bgm]amix=inputs=2:duration=first:dropout_transition=2:normalize=0[aout]"
             )
             mux_cmd = [
                 FFMPEG_EXE, "-y",
@@ -753,7 +753,8 @@ class StudioLocalHandler(SimpleHTTPRequestHandler):
         self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With")
+        self.send_header("Access-Control-Allow-Private-Network", "true")
         super().end_headers()
 
     def do_OPTIONS(self):
@@ -800,19 +801,43 @@ class StudioLocalHandler(SimpleHTTPRequestHandler):
                         shutil.rmtree(d, ignore_errors=True)
                     os.makedirs(d, exist_ok=True)
 
+                raw_folder = str(body.get("folder_name") or "Finance_Story").strip()
+                tot_sc = int(body.get("total_scenes") or 0)
+                preloaded_from_disk = False
+                if raw_folder and tot_sc > 0:
+                    cand_dir = os.path.join(DOWNLOADS_DIR, raw_folder)
+                    if os.path.isdir(cand_dir):
+                        found_all = True
+                        matched_paths = []
+                        for s_i in range(1, tot_sc + 1):
+                            p_found = None
+                            for ext_c in (".png", ".jpg", ".jpeg", ".webp"):
+                                p_try = os.path.join(cand_dir, f"{s_i}{ext_c}")
+                                if os.path.exists(p_try):
+                                    p_found = (s_i, ext_c, p_try)
+                                    break
+                            if not p_found:
+                                found_all = False
+                                break
+                            matched_paths.append(p_found)
+                        if found_all and len(matched_paths) == tot_sc:
+                            for s_i, ext_c, p_try in matched_paths:
+                                shutil.copy2(p_try, os.path.join(images_dir, f"scene_{s_i:04d}{ext_c}"))
+                            preloaded_from_disk = True
+
                 state = {
                     "ok": True,
                     "job_id": job_id,
                     "user_key": user_key,
                     "status": "uploading",
                     "cancelled": False,
-                    "pct": 2.0,
+                    "pct": 5.0 if preloaded_from_disk else 2.0,
                     "stage": "📦 Preparing Scene Images & Voiceover for Localhost HD Render...",
-                    "folder_name": str(body.get("folder_name") or "Finance_Story"),
+                    "folder_name": raw_folder or "Finance_Story",
                     "out_file_name": str(body.get("out_file_name") or "Finance_Story_Video.mp4"),
                     "bgm_track": str(body.get("bgm_track") or "calmant"),
                     "title": str(body.get("title") or body.get("folder_name") or "Finance Story Video"),
-                    "total_scenes": int(body.get("total_scenes") or 0),
+                    "total_scenes": tot_sc,
                     "scene_scripts": list(body.get("scene_scripts") or []),
                     "vo_path": "",
                     "video_url": "",
@@ -820,7 +845,12 @@ class StudioLocalHandler(SimpleHTTPRequestHandler):
                     "updated_at": time.time(),
                 }
                 save_job_state(user_key, state)
-                self._send_json(200, {"ok": True, "job_id": job_id, "status": "uploading"})
+                self._send_json(200, {
+                    "ok": True,
+                    "job_id": job_id,
+                    "status": "uploading",
+                    "scenes_preloaded_from_disk": preloaded_from_disk
+                })
                 return
 
             if self.path.startswith("/api/local_render_upload"):

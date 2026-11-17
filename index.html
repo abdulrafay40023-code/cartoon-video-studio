@@ -4837,37 +4837,42 @@
         localStorage.setItem(draftKey, JSON.stringify(draft));
       } catch (e) {}
 
-      // Save full binary state to IndexedDB (scoped per-tab if this is an isolated New Video tab so tabs NEVER overwrite each other!)
-      try {
-        const db = await openHistoryDB();
-        const wsRecord = {
-          userName: wsKey,
-          script: scriptVal,
-          promptScript: promptScriptVal,
-          voice: voiceVal,
-          promptsText: promptsVal,
-          promptsBadge: badgeVal,
-          scriptTopic: topicVal,
-          generatedScriptText: genScriptVal,
-          scriptStatsBadge: genScriptBadgeVal,
-          currentHistoryId: currentHistoryId,
-          voiceoverBlob: voiceoverFile || null,
-          voiceoverFileName: voiceoverFile ? (voiceoverFile.name || 'Generated_Voiceover.mp3') : '',
-          voiceoverDuration: voiceoverDuration || 0,
-          scenesList: selectedScenes || [],
-          folderName: folderName || 'Finance_Story',
-          videoBlob: currentVideoBlob || null,
-          videoMeta: currentVideoMeta || null,
-          updatedAt: Date.now()
-        };
-        await new Promise((resolve) => {
-          const tx = db.transaction('workspaces', 'readwrite');
-          tx.objectStore('workspaces').put(wsRecord);
-          tx.oncomplete = resolve;
-          tx.onerror = resolve;
-        });
-      } catch (e) {}
-      if (!window.isIsolatedNewVideoTab) {
+      // Save binary state to IndexedDB (skip heavy scene arrays / >35MB video blobs so V8 structured clone never triggers Out-of-Memory!)
+      if (!isRendering) {
+        try {
+          const db = await openHistoryDB();
+          const safeVideoBlob = (currentVideoBlob && currentVideoBlob.size <= 35 * 1024 * 1024) ? currentVideoBlob : null;
+          const safeVoiceBlob = (voiceoverFile && voiceoverFile.size <= 65 * 1024 * 1024) ? voiceoverFile : null;
+          const safeScenes = (Array.isArray(selectedScenes) && selectedScenes.length <= 40) ? selectedScenes : [];
+          const wsRecord = {
+            userName: wsKey,
+            script: scriptVal,
+            promptScript: promptScriptVal,
+            voice: voiceVal,
+            promptsText: promptsVal,
+            promptsBadge: badgeVal,
+            scriptTopic: topicVal,
+            generatedScriptText: genScriptVal,
+            scriptStatsBadge: genScriptBadgeVal,
+            currentHistoryId: currentHistoryId,
+            voiceoverBlob: safeVoiceBlob,
+            voiceoverFileName: voiceoverFile ? (voiceoverFile.name || 'Generated_Voiceover.mp3') : '',
+            voiceoverDuration: voiceoverDuration || 0,
+            scenesList: safeScenes,
+            folderName: folderName || 'Finance_Story',
+            videoBlob: safeVideoBlob,
+            videoMeta: currentVideoMeta || null,
+            updatedAt: Date.now()
+          };
+          await new Promise((resolve) => {
+            const tx = db.transaction('workspaces', 'readwrite');
+            tx.objectStore('workspaces').put(wsRecord);
+            tx.oncomplete = resolve;
+            tx.onerror = resolve;
+          });
+        } catch (e) {}
+      }
+      if (!window.isIsolatedNewVideoTab && !isRendering) {
         scheduleCloudDashboardSync(1200);
       }
     };
@@ -6763,8 +6768,10 @@
         const itemId = matchedItem ? matchedItem.id : ('vid_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7));
         currentHistoryId = itemId;
 
-        const finalVideoBlob = videoBlob || currentVideoBlob || (matchedItem ? matchedItem.videoBlob : null) || null;
-        const finalVoiceBlob = voiceoverFile || (matchedItem ? matchedItem.voiceoverBlob : null) || null;
+        const rawVideoBlob = videoBlob || currentVideoBlob || (matchedItem ? matchedItem.videoBlob : null) || null;
+        const finalVideoBlob = (rawVideoBlob && rawVideoBlob.size <= 40 * 1024 * 1024) ? rawVideoBlob : null;
+        const rawVoiceBlob = voiceoverFile || (matchedItem ? matchedItem.voiceoverBlob : null) || null;
+        const finalVoiceBlob = (rawVoiceBlob && rawVoiceBlob.size <= 65 * 1024 * 1024) ? rawVoiceBlob : null;
         const finalVoiceName = voiceoverFile ? voiceoverFile.name : ((matchedItem && matchedItem.voiceoverFileName) || 'Generated_Voiceover.mp3');
         const finalVoiceDur = voiceoverDuration || (matchedItem ? matchedItem.voiceoverDuration : 0) || 0;
 
@@ -6776,7 +6783,7 @@
           title: finalTitle,
           scenesCount: scenesCount || selectedScenes.length || (matchedItem ? matchedItem.scenesCount : 0) || 0,
           durationMins: durationMins || (finalVoiceDur ? (finalVoiceDur / 60).toFixed(1) : (matchedItem ? matchedItem.durationMins : '0.0')),
-          sizeMb: sizeMb || (finalVideoBlob ? (finalVideoBlob.size / (1024 * 1024)).toFixed(2) : (finalVoiceBlob ? (finalVoiceBlob.size / (1024 * 1024)).toFixed(2) : '0.0')),
+          sizeMb: sizeMb || (rawVideoBlob ? (rawVideoBlob.size / (1024 * 1024)).toFixed(2) : (finalVoiceBlob ? (finalVoiceBlob.size / (1024 * 1024)).toFixed(2) : '0.0')),
           fileName: fileName || (matchedItem ? matchedItem.fileName : 'Finance_Story_Video.mp4'),
           dateFormatted: matchedItem ? matchedItem.dateFormatted : formatDayDateTime(now),
           timestamp: matchedItem ? matchedItem.timestamp : now.getTime(),
@@ -7748,7 +7755,8 @@
       }
       document.getElementById('stageText').textContent = '🛑 Cancelling video rendering...';
       if (currentUser && currentUser.normName) {
-        fetch('/api/local_render_cancel', {
+        const localBase = typeof window.getLocalRenderBaseUrl === 'function' ? window.getLocalRenderBaseUrl() : '';
+        fetch(`${localBase}/api/local_render_cancel`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ user_key: currentUser.normName })
@@ -9774,9 +9782,33 @@ If this video helped you, subscribe to our channel and share it with a friend wh
       });
     }
 
+    window.getLocalRenderBaseUrl = function() {
+      const h = (window.location && window.location.hostname) ? window.location.hostname.toLowerCase() : '';
+      if (h === 'localhost' || h === '127.0.0.1') return '';
+      return 'http://127.0.0.1:8080';
+    };
+
+    function autoTriggerDirectVideoDownload(blob, fileName) {
+      if (!blob) return;
+      try {
+        const dlUrl = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.style.display = 'none';
+        a.href = dlUrl;
+        a.download = fileName || 'Finance_Story_Video.mp4';
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(() => {
+          try { document.body.removeChild(a); } catch (e) {}
+          try { URL.revokeObjectURL(dlUrl); } catch (e) {}
+        }, 60000);
+      } catch (e) {}
+    }
+
     window.pollAndCompleteLocalVideoRender = async function(jobId) {
       if (!currentUser) return false;
       const userKey = currentUser.normName;
+      const localBase = window.getLocalRenderBaseUrl();
       const genBtn = document.getElementById('generateBtn');
       const cancelBtn = document.getElementById('cancelVideoBtn');
       isRendering = true;
@@ -9792,7 +9824,7 @@ If this video helped you, subscribe to our channel and share it with a friend wh
         if (cancelRenderRequested) break;
         let st = null;
         try {
-          const res = await fetch(`/api/local_render_status?user_key=${encodeURIComponent(userKey)}&t=${Date.now()}`);
+          const res = await fetch(`${localBase}/api/local_render_status?user_key=${encodeURIComponent(userKey)}&t=${Date.now()}`);
           if (res.ok) st = await res.json();
         } catch (e) {}
         if (!st || !st.ok) continue;
@@ -9819,7 +9851,8 @@ If this video helped you, subscribe to our channel and share it with a friend wh
             autoResizeScriptBoxes();
           }
 
-          const vidRes = await fetch(st.video_url);
+          const fullVidUrl = st.video_url.startsWith('http') ? st.video_url : `${localBase}${st.video_url}`;
+          const vidRes = await fetch(fullVidUrl);
           const blob = await vidRes.blob();
           const outFileName = st.file_name || 'Finance_Story_Video.mp4';
           const sizeMb = st.size_mb || (blob.size / (1024 * 1024)).toFixed(2);
@@ -9864,8 +9897,12 @@ If this video helped you, subscribe to our channel and share it with a friend wh
     window.checkAndResumeActiveLocalRender = async function() {
       if (!currentUser || isRendering) return;
       const userKey = currentUser.normName;
+      const localBase = window.getLocalRenderBaseUrl();
       try {
-        const res = await fetch(`/api/local_render_status?user_key=${encodeURIComponent(userKey)}&t=${Date.now()}`);
+        const ctrl = new AbortController();
+        const tid = setTimeout(() => ctrl.abort(), 1500);
+        const res = await fetch(`${localBase}/api/local_render_status?user_key=${encodeURIComponent(userKey)}&t=${Date.now()}`, { signal: ctrl.signal });
+        clearTimeout(tid);
         if (!res.ok) return;
         const st = await res.json();
         if (!st || !st.ok) return;
@@ -9915,10 +9952,18 @@ If this video helped you, subscribe to our channel and share it with a friend wh
         return;
       }
 
-      // Persist uploaded scenes & voiceover immediately so Refresh never loses them!
+      // Free any previous rendered video blob from RAM before starting a new render
+      if (currentOutputUrl) {
+        try { URL.revokeObjectURL(currentOutputUrl); } catch (e) {}
+        currentOutputUrl = null;
+      }
+      currentVideoBlob = null;
+
       await saveUserDraftState();
 
-      // Run Native Python FFmpeg + Faster-Whisper 25fps HD Background Render on Localhost Server (Survives Page Refresh!)
+      const localBase = window.getLocalRenderBaseUrl();
+
+      // 1. Try Native Python FFmpeg + Faster-Whisper 25fps HD Background Render on Localhost Server (Survives Page Refresh & Uses 0 Browser RAM!)
       try {
         isRendering = true;
         cancelRenderRequested = false;
@@ -9946,14 +9991,17 @@ If this video helped you, subscribe to our channel and share it with a friend wh
         const outFileName = topicSlug ? `${cleanFolder}_${topicSlug}.mp4` : `${cleanFolder}_FullHD_Video.mp4`;
         const chosenBgmTrack = (activeNicheConfig && activeNicheConfig.bgm_track) ? activeNicheConfig.bgm_track : 'calmant';
 
-        updateProgress(2, `📦 Initializing Localhost HD Video Render (${nScenes} scenes)...`);
-        const initRes = await fetch('/api/local_render_init', {
+        updateProgress(2, `📦 Initializing Fast HD Video Render (${nScenes} scenes)...`);
+        const initCtrl = new AbortController();
+        const initTimeout = setTimeout(() => initCtrl.abort(), 2400);
+        const initRes = await fetch(`${localBase}/api/local_render_init`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
+          signal: initCtrl.signal,
           body: JSON.stringify({
             user_key: userKey,
             job_id: jobId,
-            folder_name: folderName || cleanFolder,
+            folder_name: folderName || activeNicheConfig.save_folder_name || cleanFolder,
             out_file_name: outFileName,
             bgm_track: chosenBgmTrack,
             title: window.currentActiveTopicTitle || folderName || 'Finance Story Video',
@@ -9961,14 +10009,16 @@ If this video helped you, subscribe to our channel and share it with a friend wh
             scene_scripts: sceneScripts
           })
         });
+        clearTimeout(initTimeout);
 
         if (initRes.ok) {
+          const initData = await initRes.json();
           updateProgress(3, `🎙️ Uploading Voiceover Audio (${voiceoverFile.name || 'voiceover.wav'})...`);
           const voB64 = await blobToBase64Raw(voiceoverFile);
           const voExt = (voiceoverFile.name && voiceoverFile.name.includes('.'))
             ? voiceoverFile.name.substring(voiceoverFile.name.lastIndexOf('.'))
             : '.wav';
-          await fetch('/api/local_render_upload', {
+          await fetch(`${localBase}/api/local_render_upload`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -9980,38 +10030,42 @@ If this video helped you, subscribe to our channel and share it with a friend wh
             })
           });
 
-          const BATCH_SZ = 12;
-          for (let i = 0; i < nScenes; i += BATCH_SZ) {
-            if (cancelRenderRequested) throw new Error('__CANCELLED__');
-            const slice = selectedScenes.slice(i, i + BATCH_SZ);
-            const batchPayload = [];
-            for (let j = 0; j < slice.length; j++) {
-              const sc = slice[j];
-              const b64 = await blobToBase64Raw(sc.file);
-              batchPayload.push({
-                scene_num: i + j + 1,
-                ext: sc.ext || '.png',
-                b64: b64
+          if (!initData || !initData.scenes_preloaded_from_disk) {
+            const BATCH_SZ = 8;
+            for (let i = 0; i < nScenes; i += BATCH_SZ) {
+              if (cancelRenderRequested) throw new Error('__CANCELLED__');
+              const slice = selectedScenes.slice(i, i + BATCH_SZ);
+              const batchPayload = [];
+              for (let j = 0; j < slice.length; j++) {
+                const sc = slice[j];
+                const b64 = await blobToBase64Raw(sc.file);
+                batchPayload.push({
+                  scene_num: i + j + 1,
+                  ext: sc.ext || '.png',
+                  b64: b64
+                });
+              }
+              const upSoFar = Math.min(nScenes, i + slice.length);
+              updateProgress(3 + (upSoFar / nScenes) * 5, `📦 Loading Scene Images (${upSoFar} / ${nScenes})...`);
+              await fetch(`${localBase}/api/local_render_upload`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  user_key: userKey,
+                  job_id: jobId,
+                  asset_type: 'scenes',
+                  uploaded_so_far: upSoFar,
+                  scenes: batchPayload
+                })
               });
             }
-            const upSoFar = Math.min(nScenes, i + slice.length);
-            updateProgress(3 + (upSoFar / nScenes) * 5, `📦 Loading Scene Images (${upSoFar} / ${nScenes})...`);
-            await fetch('/api/local_render_upload', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                user_key: userKey,
-                job_id: jobId,
-                asset_type: 'scenes',
-                uploaded_so_far: upSoFar,
-                scenes: batchPayload
-              })
-            });
+          } else {
+            updateProgress(8, `⚡ All ${nScenes} Scene Images Loaded Directly from Disk!`);
           }
 
           if (cancelRenderRequested) throw new Error('__CANCELLED__');
 
-          await fetch('/api/local_render_start', {
+          await fetch(`${localBase}/api/local_render_start`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -10039,7 +10093,7 @@ If this video helped you, subscribe to our channel and share it with a friend wh
           if (cancelBtn) cancelBtn.style.display = 'none';
           return;
         }
-        console.warn('Localhost native render fallback:', localErr);
+        console.warn('Localhost native render unavailable, using Zero-RAM Browser Renderer:', localErr);
       } finally {
         isRendering = false;
         cancelRenderRequested = false;
@@ -10053,6 +10107,7 @@ If this video helped you, subscribe to our channel and share it with a friend wh
         }
       }
 
+      // 2. ZERO-RAM SLIDING-WINDOW IN-BROWSER RENDERER (Never holds >3 decoded images or AudioBuffers in RAM!)
       isRendering = true;
       cancelRenderRequested = false;
       const genBtn = document.getElementById('generateBtn');
@@ -10066,45 +10121,75 @@ If this video helped you, subscribe to our channel and share it with a friend wh
       document.getElementById('videoResult').style.display = 'none';
 
       let audioCtx = null;
-      let voSource = null;
-      let bgmSource = null;
+      let voAudioEl = null;
+      let bgmAudioEl = null;
+      let voBlobUrl = '';
       let recorder = null;
+      const activeSceneImgs = new Map();
+      const loadingScenePromises = new Map();
 
-      try {
-        updateProgress(2, `Scanning Images Folder (${selectedScenes.length} scenes)...`);
-        const loadedImages = [];
-        for (let i = 0; i < selectedScenes.length; i++) {
-          if (cancelRenderRequested) throw new Error('__CANCELLED__');
-          const img = await loadSceneImageWithFallback(selectedScenes[i], i);
-          loadedImages.push(img);
-          if (i % 15 === 0 || i === selectedScenes.length - 1) {
-            updateProgress(2 + ((i + 1) / selectedScenes.length) * 5, `Loading scene images (${i + 1} / ${selectedScenes.length})...`);
+      function evictSceneImgsOutsideWindow(centerIdx) {
+        for (const [k, img] of activeSceneImgs.entries()) {
+          if (k < centerIdx - 1 || k > centerIdx + 3) {
+            try { img.src = ''; } catch (e) {}
+            activeSceneImgs.delete(k);
           }
         }
+      }
+
+      function preloadSceneImgAt(idx) {
+        if (idx < 0 || idx >= selectedScenes.length) return Promise.resolve(null);
+        if (activeSceneImgs.has(idx)) return Promise.resolve(activeSceneImgs.get(idx));
+        if (loadingScenePromises.has(idx)) return loadingScenePromises.get(idx);
+        const p = loadSceneImageWithFallback(selectedScenes[idx], idx)
+          .then((img) => {
+            loadingScenePromises.delete(idx);
+            if (img) activeSceneImgs.set(idx, img);
+            return img;
+          })
+          .catch(() => {
+            loadingScenePromises.delete(idx);
+            return null;
+          });
+        loadingScenePromises.set(idx, p);
+        return p;
+      }
+
+      try {
+        const nScenes = selectedScenes.length;
+        updateProgress(3, `Preparing Zero-RAM Sliding Window (${nScenes} scenes)...`);
+        await Promise.all([preloadSceneImgAt(0), preloadSceneImgAt(1), preloadSceneImgAt(2)]);
 
         if (cancelRenderRequested) throw new Error('__CANCELLED__');
 
         audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-        const rawMp3Buf = await voiceoverFile.arrayBuffer();
-        const voBuf = await audioCtx.decodeAudioData(rawMp3Buf.slice(0));
+        let rawMp3Buf = await voiceoverFile.arrayBuffer();
+        let voBuf = await audioCtx.decodeAudioData(rawMp3Buf.slice(0));
         const totalDuration = voBuf.duration;
-        const nScenes = selectedScenes.length;
 
-        const alignedScenes = await buildStrictAlignedTimeline(audioCtx, voBuf, rawMp3Buf, nScenes, totalDuration, false, loadedImages);
+        // Pass null instead of 220 decoded images so alignment uses 0 image RAM
+        const alignedScenes = await buildStrictAlignedTimeline(audioCtx, voBuf, rawMp3Buf, nScenes, totalDuration, false, null);
         populateSceneSubParts(alignedScenes);
+
+        // Immediately release the 300+ MB decoded AudioBuffer & ArrayBuffer before recording starts!
+        voBuf = null;
+        rawMp3Buf = null;
 
         if (cancelRenderRequested) throw new Error('__CANCELLED__');
 
         const chosenBgmTrack = (activeNicheConfig && activeNicheConfig.bgm_track) ? activeNicheConfig.bgm_track : 'calmant';
-        let bgmBuf = null;
-        if (chosenBgmTrack !== 'none') {
-          updateProgress(21, `Loading Background Music (${chosenBgmTrack})...`);
-          try {
-            bgmBuf = await loadOrSynthesizeBgmBuffer(audioCtx, chosenBgmTrack);
-          } catch (e) {}
-        } else {
-          updateProgress(21, 'Skipping Background Music (No Music selected)...');
-        }
+        const BGM_FILE_MAP = {
+          calmant: '/Calmant.mp3',
+          dark_suspense: '/Dark_Mystery_Bgm.mp3',
+          warm_docu: '/Warm_Documentary_Bgm.mp3',
+          lofi_focus: '/Soft_Lofi_Bgm.mp3',
+          horror_nightmare: '/Horror_Nightmare_Bgm.mp3',
+          paranormal_dread: '/Paranormal_Dread_Bgm.mp3',
+          crime_thriller: '/Crime_Thriller_Bgm.mp3',
+          ancient_history: '/Ancient_History_Bgm.mp3',
+          emotional_piano: '/Emotional_Piano_Bgm.mp3',
+          scifi_cyber: '/SciFi_Cyber_Bgm.mp3'
+        };
 
         const timeline = [];
         const globalSubTrack = Array.isArray(window.currentRenderGlobalSubParts) ? window.currentRenderGlobalSubParts : [];
@@ -10122,7 +10207,6 @@ If this video helped you, subscribe to our channel and share it with a friend wh
           } else {
             timeSinceLastZoom += dur;
           }
-          // Zero-RAM: Use loaded scene image directly without allocating 228 redundant 1080p offscreen canvases!
           timeline.push({
             idx: i,
             startSec,
@@ -10132,8 +10216,7 @@ If this video helped you, subscribe to our channel and share it with a friend wh
             subParts: (Array.isArray(al.subParts) && al.subParts.length > 0) ? al.subParts : [],
             dur,
             hasZoom,
-            text: al.text || '',
-            img: loadedImages[i]
+            text: al.text || ''
           });
         }
 
@@ -10143,36 +10226,46 @@ If this video helped you, subscribe to our channel and share it with a friend wh
         ctx.imageSmoothingQuality = 'high';
         const dest = audioCtx.createMediaStreamDestination();
 
-        voSource = audioCtx.createBufferSource();
-        voSource.buffer = voBuf;
-        voSource.connect(dest);
-        // Connect an ultra-quiet keepalive gain to audioCtx.destination so Chrome NEVER throttles or stalls AudioContext in background tabs!
+        // Stream Voiceover from disk/blob via HTMLAudioElement (<2 MB RAM instead of 350 MB AudioBuffer!)
+        voBlobUrl = URL.createObjectURL(voiceoverFile);
+        voAudioEl = new Audio(voBlobUrl);
+        voAudioEl.crossOrigin = 'anonymous';
+        voAudioEl.preload = 'auto';
+        const voMediaNode = audioCtx.createMediaElementSource(voAudioEl);
+        const voGain = audioCtx.createGain();
+        voGain.gain.value = 1.85; // Boosted clear voiceover volume
+        voMediaNode.connect(voGain);
+        voGain.connect(dest);
+
         const keepAliveGain = audioCtx.createGain();
         keepAliveGain.gain.value = 0.0001;
-        voSource.connect(keepAliveGain);
+        voGain.connect(keepAliveGain);
         keepAliveGain.connect(audioCtx.destination);
 
         let voEnded = false;
-        voSource.onended = () => {
+        voAudioEl.onended = () => {
           voEnded = true;
         };
 
-        if (bgmBuf) {
-          bgmSource = audioCtx.createBufferSource();
-          bgmSource.buffer = bgmBuf;
-          bgmSource.loop = true;
-          const gainNode = audioCtx.createGain();
-          gainNode.gain.setValueAtTime(0.001, audioCtx.currentTime);
-          gainNode.gain.linearRampToValueAtTime(0.09, audioCtx.currentTime + 3.0);
+        if (chosenBgmTrack !== 'none') {
+          const bgmPath = BGM_FILE_MAP[chosenBgmTrack] || '/Calmant.mp3';
+          bgmAudioEl = new Audio(bgmPath);
+          bgmAudioEl.crossOrigin = 'anonymous';
+          bgmAudioEl.loop = true;
+          bgmAudioEl.preload = 'auto';
+          const bgmMediaNode = audioCtx.createMediaElementSource(bgmAudioEl);
+          const bgmGain = audioCtx.createGain();
+          bgmGain.gain.setValueAtTime(0.001, audioCtx.currentTime);
+          bgmGain.gain.linearRampToValueAtTime(0.18, audioCtx.currentTime + 3.0);
           if (totalDuration > 6) {
-            gainNode.gain.setValueAtTime(0.09, audioCtx.currentTime + Math.max(3.5, totalDuration - 4.0));
-            gainNode.gain.linearRampToValueAtTime(0.001, audioCtx.currentTime + totalDuration);
+            bgmGain.gain.setValueAtTime(0.18, audioCtx.currentTime + Math.max(3.5, totalDuration - 4.0));
+            bgmGain.gain.linearRampToValueAtTime(0.001, audioCtx.currentTime + totalDuration);
           }
-          bgmSource.connect(gainNode);
-          gainNode.connect(dest);
+          bgmMediaNode.connect(bgmGain);
+          bgmGain.connect(dest);
         }
 
-        const canvasStream = canvas.captureStream(30);
+        const canvasStream = canvas.captureStream(25);
         const canvasVideoTrack = canvasStream.getVideoTracks()[0] || null;
         const combinedStream = new MediaStream([
           ...canvasStream.getVideoTracks(),
@@ -10199,8 +10292,8 @@ If this video helped you, subscribe to our channel and share it with a friend wh
         const chunks = [];
         recorder = new MediaRecorder(combinedStream, selectedMime ? {
           mimeType: selectedMime,
-          videoBitsPerSecond: 8000000
-        } : { videoBitsPerSecond: 8000000 });
+          videoBitsPerSecond: 3500000
+        } : { videoBitsPerSecond: 3500000 });
 
         recorder.ondataavailable = (e) => {
           if (e.data && e.data.size > 0) chunks.push(e.data);
@@ -10214,18 +10307,19 @@ If this video helped you, subscribe to our channel and share it with a friend wh
           try { await audioCtx.resume(); } catch (e) {}
         }
 
-        recorder.start(1000);
-        const startAudioTime = audioCtx.currentTime;
+        recorder.start(2000);
         const startWallMs = performance.now();
-        voSource.start(startAudioTime);
-        if (bgmSource) bgmSource.start(startAudioTime);
+        await voAudioEl.play();
+        if (bgmAudioEl) {
+          try { await bgmAudioEl.play(); } catch (e) {}
+        }
 
-        // Unthrottled Web Worker 60-FPS clock: zero 1000ms MediaRecorder chunk stalls during smooth cosine zoom!
+        // Unthrottled Web Worker 25-FPS clock (40ms): smooth zoom & zero RAM buildup
         let tickWorker = null;
         let tickWorkerUrl = '';
         try {
           const wBlob = new Blob([
-            'let t=setInterval(()=>postMessage(0),16);onmessage=()=>{clearInterval(t);close();};'
+            'let t=setInterval(()=>postMessage(0),40);onmessage=()=>{clearInterval(t);close();};'
           ], { type: 'application/javascript' });
           tickWorkerUrl = URL.createObjectURL(wBlob);
           tickWorker = new Worker(tickWorkerUrl);
@@ -10233,6 +10327,9 @@ If this video helped you, subscribe to our channel and share it with a friend wh
 
         let curScenePtr = 0;
         let lastUiUpdateMs = 0;
+        let lastDrawnKey = '';
+        let lastValidImg = activeSceneImgs.get(0) || null;
+
         await new Promise((resolve) => {
           let finished = false;
           function finishRenderLoop() {
@@ -10258,15 +10355,15 @@ If this video helped you, subscribe to our channel and share it with a friend wh
             if (audioCtx && audioCtx.state === 'suspended') {
               try { audioCtx.resume(); } catch (e) {}
             }
-            const audioElapsed = audioCtx.currentTime - startAudioTime;
+            const audioElapsed = (voAudioEl && Number.isFinite(voAudioEl.currentTime)) ? voAudioEl.currentTime : 0;
             const wallElapsed = (performance.now() - startWallMs) / 1000.0;
-            // Never let elapsed lag behind real wall-clock audio playback or exceed totalDuration!
-            const elapsed = Math.max(audioElapsed, wallElapsed);
+            const elapsed = audioElapsed > 0.05 ? audioElapsed : wallElapsed;
             if (voEnded || elapsed >= totalDuration) {
               finishRenderLoop();
               return;
             }
 
+            const prevPtr = curScenePtr;
             while (curScenePtr < nScenes - 1 && elapsed >= timeline[curScenePtr].endSec) {
               curScenePtr++;
             }
@@ -10274,30 +10371,16 @@ If this video helped you, subscribe to our channel and share it with a friend wh
               curScenePtr--;
             }
 
+            if (curScenePtr !== prevPtr) {
+              preloadSceneImgAt(curScenePtr);
+              preloadSceneImgAt(curScenePtr + 1);
+              preloadSceneImgAt(curScenePtr + 2);
+              evictSceneImgsOutsideWindow(curScenePtr);
+            }
+
             const sc = timeline[curScenePtr];
             const localT = Math.max(0, elapsed - sc.startSec);
             const zoom = sc.hasZoom ? calculateZoom(localT, sc.dur) : 1.0;
-
-            ctx.imageSmoothingEnabled = true;
-            ctx.imageSmoothingQuality = 'high';
-            ctx.fillStyle = '#000';
-            ctx.fillRect(0, 0, 1920, 1080);
-
-            const img = sc.img;
-            if (img && img.width > 0 && img.height > 0) {
-              if (Math.abs(zoom - 1.0) < 0.0002) {
-                ctx.drawImage(img, 0, 0, 1920, 1080);
-              } else {
-                ctx.save();
-                ctx.imageSmoothingEnabled = true;
-                ctx.imageSmoothingQuality = 'high';
-                ctx.translate(960, 540);
-                ctx.scale(zoom, zoom);
-                ctx.translate(-960, -540);
-                ctx.drawImage(img, 0, 0, 1920, 1080);
-                ctx.restore();
-              }
-            }
 
             let subToDraw = '';
             if (Array.isArray(sc.subParts) && sc.subParts.length > 0) {
@@ -10308,11 +10391,42 @@ If this video helped you, subscribe to our channel and share it with a friend wh
               const activeGlobal = globalSubTrack.find(p => elapsed >= p.start - 0.03 && elapsed <= p.end + 0.05);
               if (activeGlobal) subToDraw = activeGlobal.text;
             }
-            // Never display entire scene paragraph text! Strictly draw max 4-word burst
-            if (subToDraw) {
-              const rawW = String(subToDraw).trim().split(/\s+/).filter(Boolean);
-              const clean4 = rawW.slice(0, 4).join(' ');
-              drawSubtitleOverlay(ctx, clean4);
+
+            const img = activeSceneImgs.get(curScenePtr) || lastValidImg;
+            if (activeSceneImgs.has(curScenePtr)) {
+              lastValidImg = activeSceneImgs.get(curScenePtr);
+            } else {
+              preloadSceneImgAt(curScenePtr);
+            }
+
+            const stateKey = `${curScenePtr}|${img ? 1 : 0}|${zoom.toFixed(4)}|${subToDraw}`;
+            if (stateKey !== lastDrawnKey) {
+              lastDrawnKey = stateKey;
+              ctx.imageSmoothingEnabled = true;
+              ctx.imageSmoothingQuality = 'high';
+              ctx.fillStyle = '#000';
+              ctx.fillRect(0, 0, 1920, 1080);
+
+              if (img && img.width > 0 && img.height > 0) {
+                if (Math.abs(zoom - 1.0) < 0.0002) {
+                  ctx.drawImage(img, 0, 0, 1920, 1080);
+                } else {
+                  ctx.save();
+                  ctx.imageSmoothingEnabled = true;
+                  ctx.imageSmoothingQuality = 'high';
+                  ctx.translate(960, 540);
+                  ctx.scale(zoom, zoom);
+                  ctx.translate(-960, -540);
+                  ctx.drawImage(img, 0, 0, 1920, 1080);
+                  ctx.restore();
+                }
+              }
+
+              if (subToDraw) {
+                const rawW = String(subToDraw).trim().split(/\s+/).filter(Boolean);
+                const clean4 = rawW.slice(0, 4).join(' ');
+                drawSubtitleOverlay(ctx, clean4);
+              }
             }
 
             if (canvasVideoTrack && typeof canvasVideoTrack.requestFrame === 'function') {
@@ -10320,7 +10434,7 @@ If this video helped you, subscribe to our channel and share it with a friend wh
             }
 
             const nowMs = performance.now();
-            if (nowMs - lastUiUpdateMs >= 200) {
+            if (nowMs - lastUiUpdateMs >= 250) {
               lastUiUpdateMs = nowMs;
               const pct = 22 + (elapsed / totalDuration) * 76;
               updateProgress(
@@ -10333,7 +10447,7 @@ If this video helped you, subscribe to our channel and share it with a friend wh
               if (!document.hidden && typeof requestAnimationFrame === "function") {
                 requestAnimationFrame(renderTick);
               } else {
-                setTimeout(renderTick, 33);
+                setTimeout(renderTick, 40);
               }
             }
           }
@@ -10344,8 +10458,17 @@ If this video helped you, subscribe to our channel and share it with a friend wh
           renderTick();
         });
 
-        try { voSource.stop(); } catch (e) {}
-        if (bgmSource) { try { bgmSource.stop(); } catch (e) {} }
+        try { if (voAudioEl) { voAudioEl.pause(); voAudioEl.src = ''; } } catch (e) {}
+        try { if (bgmAudioEl) { bgmAudioEl.pause(); bgmAudioEl.src = ''; } } catch (e) {}
+        if (voBlobUrl) {
+          try { URL.revokeObjectURL(voBlobUrl); } catch (e) {}
+          voBlobUrl = '';
+        }
+        for (const [, img] of activeSceneImgs.entries()) {
+          try { img.src = ''; } catch (e) {}
+        }
+        activeSceneImgs.clear();
+
         if (recorder && recorder.state !== 'inactive') {
           recorder.stop();
           await recordingDone;
@@ -10355,12 +10478,14 @@ If this video helped you, subscribe to our channel and share it with a friend wh
         }
 
         if (cancelRenderRequested) {
+          chunks.length = 0;
           throw new Error('__CANCELLED__');
         }
 
-        updateProgress(100, 'Completed! Ready to Download & Saved to Your History.');
+        updateProgress(100, '✅ Completed! Auto-Downloading to Your Downloads Folder...');
         const ext = selectedMime.includes('mp4') ? 'mp4' : 'webm';
         const blob = new Blob(chunks, { type: selectedMime || 'video/webm' });
+        chunks.length = 0; // Free chunk references immediately!
 
         const cleanFolder = (activeNicheConfig.save_folder_name || folderName || 'Finance_Story').replace(/[^A-Za-z0-9_-]+/g, '_');
         const qIdx = Number(window.currentQueueVideoIndex) || 0;
@@ -10371,9 +10496,12 @@ If this video helped you, subscribe to our channel and share it with a friend wh
           .slice(0, 36);
         const outFileName = (qTot > 1 && qIdx >= 1)
           ? `Video_${qIdx}_${topicSlug || cleanFolder}.${ext}`
-          : (topicSlug ? `${cleanFolder}_${topicSlug}.${ext}` : `${cleanFolder}_Spaced_Zoom_Video.${ext}`);
+          : (topicSlug ? `${cleanFolder}_${topicSlug}.${ext}` : `${cleanFolder}_FullHD_Video.${ext}`);
         const sizeMb = (blob.size / (1024 * 1024)).toFixed(2);
         const durMins = (totalDuration / 60).toFixed(2);
+
+        // Immediately trigger direct download to Downloads folder!
+        autoTriggerDirectVideoDownload(blob, outFileName);
 
         // Mark this folder + naming format as used for this video so New Video warns against overwriting
         markFolderFormatUsedForVideo(activeNicheConfig.save_folder_name || cleanFolder, activeNicheConfig.file_name_format || '1');
@@ -10382,7 +10510,7 @@ If this video helped you, subscribe to our channel and share it with a friend wh
           fileName: outFileName,
           sizeMb: sizeMb,
           durationMins: durMins,
-          dateFormatted: 'Ready to Watch — Achi Lage Toh Niche Download Button Dabayein!',
+          dateFormatted: 'Auto-Saved to Downloads & Ready to Watch!',
           strictSyncV4: true,
           wordSyncedV5: true,
           wordSyncedV8: true,
@@ -10434,7 +10562,6 @@ If this video helped you, subscribe to our channel and share it with a friend wh
           window.onCurrentAutoVideoFinished = null;
           doneFn(true);
         } else if (Array.isArray(window.selectedViralTopicQueue) && window.selectedViralTopicQueue.length > 1) {
-          // Even if the user rendered Video #1 manually after selecting topics in the queue, trigger the Next Video Popup for Video #2!
           const curQPos = Number(window.nextPendingQueuePos) || 0;
           if (curQPos < window.selectedViralTopicQueue.length - 1) {
             if (!Array.isArray(window.completedViralQueuePositions)) window.completedViralQueuePositions = [];
@@ -10454,8 +10581,15 @@ If this video helped you, subscribe to our channel and share it with a friend wh
         }
 
       } catch (err) {
-        try { if (voSource) voSource.stop(); } catch (e) {}
-        try { if (bgmSource) bgmSource.stop(); } catch (e) {}
+        try { if (voAudioEl) { voAudioEl.pause(); voAudioEl.src = ''; } } catch (e) {}
+        try { if (bgmAudioEl) { bgmAudioEl.pause(); bgmAudioEl.src = ''; } } catch (e) {}
+        if (voBlobUrl) {
+          try { URL.revokeObjectURL(voBlobUrl); } catch (e) {}
+        }
+        for (const [, img] of activeSceneImgs.entries()) {
+          try { img.src = ''; } catch (e) {}
+        }
+        activeSceneImgs.clear();
         try { if (recorder && recorder.state !== 'inactive') recorder.stop(); } catch (e) {}
         try { if (audioCtx && audioCtx.state !== 'closed') await audioCtx.close(); } catch (e) {}
 
