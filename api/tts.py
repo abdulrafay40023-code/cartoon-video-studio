@@ -1227,23 +1227,23 @@ def translate_beats_to_literal_visual_scenes(
     return results
 
 
-WHITE_CHAR_CONSISTENCY_HEADER = """**CHARACTER CONSISTENCY PROMPT**
+WHITE_CHAR_CONSISTENCY_HEADER = """**CHARACTER CONSISTENCY PROMPT (STATIC 2D IMAGE ONLY — DO NOT GENERATE A VIDEO)**
 
 Use the uploaded reference image as the permanent reference for the main character. Keep him EXACTLY the same in every image: same pale skin, face shape, simple black oval eyes, eyebrows, nose, subtle smile, dark brown wavy hair, hairstyle, body proportions, and clean black outlines.
 
 **Style:** Polished 2D cartoon character with detailed semi-realistic painted backgrounds, cinematic lighting, soft cel shading, and warm natural colors.
 
-**Continuity:** Change only the pose, facial expression, environment, and outfit when the story requires it. Maintain the same character identity across all scenes and ages, with only subtle natural aging. Keep the same outfit within the same timeline.
+**Continuity:** Change only the pose, facial expression, environment, and outfit when the illustration requires it. Maintain the same character identity across all illustrations and ages, with only subtle natural aging. Keep the same outfit consistently across all illustrations.
 
-**Format:** 16:9 landscape, cinematic composition, clear foreground and background, suitable for YouTube storytelling.
+**Format:** 16:9 widescreen static 2D digital illustration image ONLY (STRICTLY STATIC IMAGE — DO NOT GENERATE A VIDEO, DO NOT ANIMATE), clear foreground and background.
 
-**Negative rules:** No character redesign, different face, hairstyle, skin tone, or eyes. No realistic or colored eyes, photorealism, 3D, distorted hands, extra fingers, duplicated characters, watermarks, or unrequested text."""
+**Negative rules:** NO video, NO animation, NO motion clip, NO character redesign, different face, hairstyle, skin tone, or eyes. No realistic or colored eyes, photorealism, 3D, distorted hands, extra fingers, duplicated characters, watermarks, or unrequested text."""
 
-WORLD_SCENE_STYLE_HEADER = """**Style:** Polished 2D illustration with detailed semi-realistic painted backgrounds, clean black outlines, cinematic lighting, soft cel shading, and warm natural colors.
+WORLD_SCENE_STYLE_HEADER = """**Style:** Polished 2D static illustration with detailed semi-realistic painted backgrounds, clean black outlines, cinematic lighting, soft cel shading, and warm natural colors.
 
-**Format:** 16:9 landscape, cinematic composition, clear foreground and background, suitable for YouTube storytelling.
+**Format:** 16:9 widescreen static 2D digital illustration image ONLY (STRICTLY STATIC IMAGE — DO NOT GENERATE A VIDEO, DO NOT ANIMATE), clear foreground and background.
 
-**Negative rules:** No photorealism, 3D, distorted hands, extra fingers, watermarks, or unrequested text."""
+**Negative rules:** NO video, NO animation, NO motion clip, NO photorealism, 3D, distorted hands, extra fingers, watermarks, or unrequested text."""
 
 
 def generate_full_prompts_document(
@@ -1279,13 +1279,13 @@ def generate_full_prompts_document(
     total_est_sec = 0.0
 
     shot_cycle = [
-        "wide-angle establishing shot",
+        "wide-angle establishing view",
         "close-up focal detail angle",
-        "over-the-shoulder POV shot",
+        "over-the-shoulder POV perspective",
         "dramatic side-profile angle",
         "low-angle upward perspective",
         "high-angle top-down perspective",
-        "three-quarter medium shot",
+        "three-quarter medium view",
         "foreground object focus angle",
     ]
 
@@ -1310,8 +1310,8 @@ def generate_full_prompts_document(
 
         if scene_tag == "WORLD":
             action_prompt = _ensure_pure_english_prompt(
-                f"Create the image in 16:9 widescreen 2D cartoon illustration ({shot_label}, completely different camera angle and scene from previous image, B-roll / object / environment focus without main character): {literal_scene}.{num_visual} "
-                f"All other characters (if any) have normal human skin tones; strict normal anatomy only (1 head, 2 hands, 2 legs — NO 3 hands, NO 3 legs, NO 2 heads, and no anatomy glitches)."
+                f"Generate a single static 16:9 widescreen 2D cartoon illustration image ONLY — DO NOT generate a video ({shot_label}, completely different perspective and composition from previous image, detailed environment and object focus without main character): {literal_scene}.{num_visual} "
+                f"All other characters (if any) have normal human skin tones; strict normal anatomy only (1 head, 2 hands, 2 legs — NO 3 hands, NO 3 legs, NO 2 heads, and no anatomy glitches). Output 1 static 2D image only (NO video, NO animation)."
             )
             lines.append(f"Image {img_num}")
             lines.append("")
@@ -1323,8 +1323,8 @@ def generate_full_prompts_document(
             lines.append("")
         elif niche_type == "stickman":
             action_prompt = _ensure_pure_english_prompt(
-                f"Create the image in 16:9 widescreen 2D cartoon illustration ({shot_label}, completely different camera angle and scene from previous image): {literal_scene}.{num_visual} "
-                f"Main character must stay 100% identical to the attached reference image with pure white stickman head (no character change); strict normal anatomy only (1 head, 2 hands, 2 legs — NO 3 hands, NO 3 legs, NO 2 heads, and no anatomy glitches)."
+                f"Generate a single static 16:9 widescreen 2D cartoon illustration image ONLY — DO NOT generate a video ({shot_label}, completely different perspective and composition from previous image): {literal_scene}.{num_visual} "
+                f"Main character must stay 100% identical to the attached reference image with pure white stickman head (no character change); strict normal anatomy only (1 head, 2 hands, 2 legs — NO 3 hands, NO 3 legs, NO 2 heads, and no anatomy glitches). Output 1 static 2D image only (NO video, NO animation)."
             )
             lines.append(f"Image {img_num}")
             lines.append("")
@@ -1334,8 +1334,8 @@ def generate_full_prompts_document(
             lines.append("")
         else:
             action_prompt = _ensure_pure_english_prompt(
-                f"Create the image in 16:9 widescreen 2D cartoon illustration ({shot_label}, completely different camera angle and scene from previous image): {literal_scene}.{num_visual} "
-                f"Main character must stay 100% identical to the attached reference image with pure white skin tone (never change character, face, outfit, or skin tone), while all other characters have normal human skin tones; strict normal anatomy only (1 head, 2 hands, 2 legs — NO 3 hands, NO 3 legs, NO 2 heads, and no anatomy glitches)."
+                f"Generate a single static 16:9 widescreen 2D cartoon illustration image ONLY — DO NOT generate a video ({shot_label}, completely different perspective and composition from previous image): {literal_scene}.{num_visual} "
+                f"Main character must stay 100% identical to the attached reference image with pure white skin tone (never change character, face, outfit, or skin tone), while all other characters have normal human skin tones; strict normal anatomy only (1 head, 2 hands, 2 legs — NO 3 hands, NO 3 legs, NO 2 heads, and no anatomy glitches). Output 1 static 2D image only (NO video, NO animation)."
             )
             lines.append(f"Image {img_num}")
             lines.append("")
