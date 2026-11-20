@@ -12002,7 +12002,9 @@ STRICT RULES:
               if (cJob && cJob.job_id === jobId) {
                 const jobStatus = String(cJob.status || '').toLowerCase();
                 const jobStatusText = String(cJob.statusText || '');
-                const curScript = String(cJob.scriptText || cJob.script_text || '').trim();
+                const rawCurScript = String(cJob.scriptText || cJob.script_text || '').trim();
+                const isNonScriptNoise = /meri recommendation hai|Ye topic kyun best hai|Strong hook:|High curiosity:|Storyline potential:|Topic #\d\s*[—\-]/i.test(rawCurScript);
+                const curScript = isNonScriptNoise ? '' : rawCurScript;
 
                 if (jobStatus === 'running' || /writing|chatgpt is now/i.test(jobStatusText)) {
                   chatGptActiveProgress = true;
@@ -12462,7 +12464,10 @@ STRICT RULES:
           updateFullAutoPipelineUI(14, `🤖 ${msg.statusText || 'ChatGPT is writing your viral script...'}`, true);
         }
       } else if ((msg.type === 'CHATGPT_BOT_DONE' || msg.type === 'CHATGPT_SCRIPT_READY') && (msg.scriptText || msg.script_text)) {
-        const resolvedTxt = msg.scriptText || msg.script_text || '';
+        const resolvedTxt = String(msg.scriptText || msg.script_text || '').trim();
+        if (/meri recommendation hai|Ye topic kyun best hai|Strong hook:|High curiosity:|Storyline potential:|Topic #\d\s*[—\-]/i.test(resolvedTxt)) {
+          return;
+        }
         window.lastGeneratedScriptWasFromChatGpt = true;
         if (typeof activeChatGptScriptResolve === 'function') {
           activeChatGptScriptResolve(resolvedTxt);
@@ -12547,6 +12552,9 @@ STRICT RULES:
         const cJob = pData && pData.job ? pData.job : null;
         if (!cJob) return;
         const curScript = String(cJob.scriptText || cJob.script_text || '').trim();
+        if (/meri recommendation hai|Ye topic kyun best hai|Strong hook:|High curiosity:|Storyline potential:|Topic #\d\s*[—\-]/i.test(curScript)) {
+          return;
+        }
         const updatedTs = Number(cJob.updated_at || 0);
         const isRecent = (Date.now() / 1000) - updatedTs < 120;
         const hashKey = `${updatedTs}_${curScript.length}`;
