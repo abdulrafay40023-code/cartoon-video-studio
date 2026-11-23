@@ -2780,12 +2780,13 @@ def _build_bot_job_candidate_slugs(user_email: str, client_ip: str = "") -> list
     em_slug = _safe_user_storage_slug(em) if em else ""
     ip_slug = _safe_user_storage_slug(client_ip) if client_ip else ""
     slugs = []
-    # Strict per-user isolation: when a Studio user email is provided, NEVER fall back to shared IP or global slugs!
+    # Strict per-user isolation: canonical user email slug MUST come first so cross-profile / dual-IP tabs always share the primary doc!
     if em_slug:
+        slugs.append(em_slug)
         if ip_slug:
-            slugs.append(f"{em_slug}__ip_{ip_slug}")
-        if em_slug not in slugs:
-            slugs.append(em_slug)
+            ip_combo = f"{em_slug}__ip_{ip_slug}"
+            if ip_combo not in slugs:
+                slugs.append(ip_combo)
         return slugs
     if ip_slug:
         slugs.append(f"pc_ip_job_{ip_slug}")
@@ -2911,7 +2912,12 @@ def load_pc_bound_email(client_ip: str, mark_ext_ping: bool = False) -> dict:
 
 def save_bot_job_cloud(user_email: str, job_payload: dict, client_ip: str = ""):
     job_payload["updated_at"] = time.time()
-    eff_ip = (client_ip or job_payload.get("client_ip") or "").strip()
+    prev_ip = (job_payload.get("orig_client_ip") or job_payload.get("client_ip") or "").strip()
+    eff_ip = (client_ip or prev_ip or "").strip()
+    if prev_ip and not job_payload.get("orig_client_ip"):
+        job_payload["orig_client_ip"] = prev_ip
+    elif eff_ip and not job_payload.get("orig_client_ip"):
+        job_payload["orig_client_ip"] = eff_ip
     if eff_ip:
         job_payload["client_ip"] = eff_ip
     eff_email = (job_payload.get("owner_email") or job_payload.get("email") or user_email or "").strip().lower()
@@ -2919,6 +2925,10 @@ def save_bot_job_cloud(user_email: str, job_payload: dict, client_ip: str = ""):
         job_payload["email"] = eff_email
         job_payload["owner_email"] = eff_email
     slugs = _build_bot_job_candidate_slugs(eff_email, eff_ip)
+    if prev_ip and prev_ip != eff_ip:
+        for s in _build_bot_job_candidate_slugs(eff_email, prev_ip):
+            if s not in slugs:
+                slugs.append(s)
     if user_email and user_email.strip().lower() != eff_email:
         for s in _build_bot_job_candidate_slugs(user_email, eff_ip):
             if s not in slugs:
@@ -2960,8 +2970,6 @@ def load_bot_job_cloud(user_email: str, client_ip: str = "") -> dict:
             if em_clean and doc_owner and doc_owner != em_clean:
                 continue
             ts = float(d.get("updated_at") or 0.0)
-            if d.get("active") and (time.time() - ts) < 7200:
-                return d
             if ts >= best_ts or not best:
                 best = d
                 best_ts = ts
@@ -2999,7 +3007,12 @@ def upload_bot_scene_image_cloud(user_email: str, job_id: str, scene_num: int, d
 
 def save_chatgpt_job_cloud(user_email: str, job_payload: dict, client_ip: str = ""):
     job_payload["updated_at"] = time.time()
-    eff_ip = (client_ip or job_payload.get("client_ip") or "").strip()
+    prev_ip = (job_payload.get("orig_client_ip") or job_payload.get("client_ip") or "").strip()
+    eff_ip = (client_ip or prev_ip or "").strip()
+    if prev_ip and not job_payload.get("orig_client_ip"):
+        job_payload["orig_client_ip"] = prev_ip
+    elif eff_ip and not job_payload.get("orig_client_ip"):
+        job_payload["orig_client_ip"] = eff_ip
     if eff_ip:
         job_payload["client_ip"] = eff_ip
     eff_email = (job_payload.get("owner_email") or job_payload.get("email") or user_email or "").strip().lower()
@@ -3007,6 +3020,10 @@ def save_chatgpt_job_cloud(user_email: str, job_payload: dict, client_ip: str = 
         job_payload["email"] = eff_email
         job_payload["owner_email"] = eff_email
     slugs = _build_bot_job_candidate_slugs(eff_email, eff_ip)
+    if prev_ip and prev_ip != eff_ip:
+        for s in _build_bot_job_candidate_slugs(eff_email, prev_ip):
+            if s not in slugs:
+                slugs.append(s)
     if user_email and user_email.strip().lower() != eff_email:
         for s in _build_bot_job_candidate_slugs(user_email, eff_ip):
             if s not in slugs:
@@ -3027,12 +3044,36 @@ def load_chatgpt_job_cloud(user_email: str, client_ip: str = "") -> dict:
             if em_clean and doc_owner and doc_owner != em_clean:
                 continue
             ts = float(d.get("updated_at") or 0.0)
-            if d.get("active") and (time.time() - ts) < 3600:
-                return d
             if ts >= best_ts or not best:
                 best = d
                 best_ts = ts
     return best or {"active": False, "status": "idle", "script_text": "", "updated_at": 0.0}
+
+
+def _does_script_match_topic_py(script_text: str, topic_title: str) -> bool:
+    s = str(script_text or "").strip().lower()
+    t = str(topic_title or "").strip().lower()
+    if len(s.split()) < 160 or not t:
+        return False
+    if re.search(r"meri recommendation hai|ye topic kyun best hai|strong hook:|high curiosity:|storyline potential:", s):
+        return False
+    # Check numbers in topic (e.g. 8,400 / 8400 / 40% / 10)
+    topic_nums = re.findall(r"\d+(?:,\d+)*", t)
+    for num in topic_nums:
+        clean_num = num.replace(",", "")
+        if num not in s and clean_num not in s:
+            return False
+    stop_words = {
+        "pov", "your", "you", "the", "with", "then", "they", "that", "this", "from",
+        "into", "when", "while", "were", "have", "had", "for", "and", "are", "was",
+        "but", "re", "ve", "ll", "don", "didn", "now", "here", "why", "how", "who"
+    }
+    words = [w for w in re.sub(r"[^a-z0-9]+", " ", t).split() if len(w) >= 3 and w not in stop_words]
+    if not words:
+        return True
+    hits = sum(1 for w in words if w in s)
+    req_hits = max(2, int(len(words) * 0.55))
+    return hits >= min(req_hits, len(words))
 
 
 VIRAL_NICHE_METADATA = {
@@ -4273,29 +4314,74 @@ class handler(BaseHTTPRequestHandler):
                     self._send_json(200, {"ok": True, "bound_email": "", "connected_emails": conn_emails, "ext_recently_active": ext_active, "job": {"active": False}})
                     return
                 job_doc = load_chatgpt_job_cloud(user_email, client_ip=client_ip)
+
+                # If the ChatGPT extension tab piggybacked a completed script on its poll, sync it into this container if matching or idle!
+                sync_obj = data.get("completed_script_sync")
+                if from_ext and isinstance(sync_obj, dict):
+                    sync_script = str(sync_obj.get("script_text") or "").strip()
+                    sync_jid = str(sync_obj.get("job_id") or "").strip()
+                    sync_topic = str(sync_obj.get("topic") or "").strip()
+                    if len(sync_script) > 200:
+                        cur_jid = str(job_doc.get("job_id") or "").strip() if isinstance(job_doc, dict) else ""
+                        cur_topic = str(job_doc.get("topic") or "").strip() if isinstance(job_doc, dict) else ""
+                        cur_script = str((job_doc.get("script_text") or job_doc.get("scriptText") or "") if isinstance(job_doc, dict) else "").strip()
+                        cur_status = str(job_doc.get("status") or "idle").strip().lower() if isinstance(job_doc, dict) else "idle"
+                        same_jid = bool(sync_jid and cur_jid and sync_jid == cur_jid)
+                        topic_matches = bool(cur_topic and (
+                            (sync_topic and sync_topic.lower() == cur_topic.lower())
+                            or _does_script_match_topic_py(sync_script, cur_topic)
+                        ))
+                        if same_jid or topic_matches or cur_status in ("idle", "") or not cur_script:
+                            if not isinstance(job_doc, dict) or not job_doc:
+                                job_doc = {"email": user_email, "owner_email": user_email, "client_ip": client_ip}
+                            if not cur_jid and sync_jid:
+                                job_doc["job_id"] = sync_jid
+                            if not cur_topic and sync_topic:
+                                job_doc["topic"] = sync_topic
+                            if same_jid or topic_matches or cur_status not in ("queued", "running"):
+                                job_doc["script_text"] = sync_script
+                                job_doc["scriptText"] = sync_script
+                                job_doc["status"] = "completed"
+                                job_doc["active"] = False
+                                wc = len(sync_script.split())
+                                job_doc["statusText"] = f"✅ ChatGPT Script Ready ({wc} words)!"
+                                save_chatgpt_job_cloud(user_email, job_doc, client_ip=client_ip)
+
                 exp_job = data.get("expected_job")
                 if isinstance(exp_job, dict) and exp_job.get("job_id") and (exp_job.get("prompt") or exp_job.get("chatgpt_prompt")):
-                    if not isinstance(job_doc, dict) or job_doc.get("job_id") != exp_job.get("job_id"):
-                        pr_txt = str(exp_job.get("chatgpt_prompt") or exp_job.get("prompt") or "").strip()
-                        tp_txt = str(exp_job.get("topic") or "").strip()
-                        job_doc = {
-                            "job_id": str(exp_job.get("job_id")),
-                            "email": user_email,
-                            "owner_email": user_email,
-                            "client_ip": client_ip,
-                            "active": True,
-                            "status": "queued",
-                            "topic": tp_txt,
-                            "duration_mins": int(exp_job.get("duration_mins") or 10),
-                            "chatgpt_prompt": pr_txt,
-                            "prompt": pr_txt,
-                            "script_text": "",
-                            "scriptText": "",
-                            "statusText": f"⏳ Sending topic \"{tp_txt[:55]}\" to ChatGPT...",
-                            "started_at": time.time(),
-                            "updated_at": time.time(),
-                        }
-                        save_chatgpt_job_cloud(user_email, job_doc, client_ip=client_ip)
+                    exp_jid = str(exp_job.get("job_id")).strip()
+                    pr_txt = str(exp_job.get("chatgpt_prompt") or exp_job.get("prompt") or "").strip()
+                    tp_txt = str(exp_job.get("topic") or "").strip()
+                    if not isinstance(job_doc, dict) or job_doc.get("job_id") != exp_jid:
+                        existing_script = str((job_doc.get("script_text") or job_doc.get("scriptText") or "") if isinstance(job_doc, dict) else "").strip()
+                        existing_ts = float(job_doc.get("updated_at") or 0.0) if isinstance(job_doc, dict) else 0.0
+                        if len(existing_script) > 200 and (time.time() - existing_ts) < 900 and _does_script_match_topic_py(existing_script, tp_txt):
+                            # This container ALREADY has the completed script for this exact topic! Adopt exp_jid without wiping the script!
+                            job_doc["job_id"] = exp_jid
+                            job_doc["topic"] = tp_txt
+                            job_doc["status"] = "completed"
+                            job_doc["active"] = False
+                            save_chatgpt_job_cloud(user_email, job_doc, client_ip=client_ip)
+                        else:
+                            job_doc = {
+                                "job_id": exp_jid,
+                                "email": user_email,
+                                "owner_email": user_email,
+                                "client_ip": client_ip,
+                                "orig_client_ip": client_ip,
+                                "active": True,
+                                "status": "queued",
+                                "topic": tp_txt,
+                                "duration_mins": int(exp_job.get("duration_mins") or 10),
+                                "chatgpt_prompt": pr_txt,
+                                "prompt": pr_txt,
+                                "script_text": "",
+                                "scriptText": "",
+                                "statusText": f"⏳ Sending topic \"{tp_txt[:55]}\" to ChatGPT...",
+                                "started_at": time.time(),
+                                "updated_at": time.time(),
+                            }
+                            save_chatgpt_job_cloud(user_email, job_doc, client_ip=client_ip)
                 self._send_json(200, {"ok": True, "bound_email": bound_email or user_email, "connected_emails": conn_emails, "ext_recently_active": ext_active, "job": job_doc})
                 return
 
@@ -4309,13 +4395,15 @@ class handler(BaseHTTPRequestHandler):
                 if not job_doc or not isinstance(job_doc, dict):
                     job_doc = {"email": user_email, "owner_email": user_email, "client_ip": client_ip}
                 incoming_jid = str(data.get("job_id") or "").strip()
+                script_out = (data.get("script_text") or data.get("scriptText") or "").strip()
+                status_val = (data.get("status") or "completed").strip()
                 if incoming_jid:
-                    if job_doc.get("job_id") and job_doc.get("job_id") != incoming_jid:
+                    if job_doc.get("job_id") and job_doc.get("job_id") != incoming_jid and not script_out:
                         job_doc["script_text"] = ""
                         job_doc["scriptText"] = ""
                     job_doc["job_id"] = incoming_jid
-                script_out = (data.get("script_text") or data.get("scriptText") or "").strip()
-                status_val = (data.get("status") or "completed").strip()
+                if data.get("topic"):
+                    job_doc["topic"] = str(data.get("topic")).strip()
                 if "script_text" in data or "scriptText" in data or script_out or status_val == "completed":
                     job_doc["script_text"] = script_out
                     job_doc["scriptText"] = script_out

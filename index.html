@@ -11938,19 +11938,25 @@ STRICT RULES:
       window.thisTabLaunchedChatGpt = true;
       let finalPromptForExt = chatgptPrompt;
       if (userEmail) {
+        const startPayloadStr = JSON.stringify({
+          action: 'chatgpt_queue_start',
+          job_id: jobId,
+          email: userEmail,
+          topic: topicTitle,
+          youtube_ref: youtubeRef,
+          duration_mins: durMins,
+          prompt: chatgptPrompt
+        });
+        fetch('http://127.0.0.1:8080/api/tts', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: startPayloadStr
+        }).catch(() => null);
         try {
           const qRes = await fetch('/api/tts', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              action: 'chatgpt_queue_start',
-              job_id: jobId,
-              email: userEmail,
-              topic: topicTitle,
-              youtube_ref: youtubeRef,
-              duration_mins: durMins,
-              prompt: chatgptPrompt
-            })
+            body: startPayloadStr
           });
           if (qRes.ok) {
             const qData = await qRes.json();
@@ -11974,7 +11980,7 @@ STRICT RULES:
         }, '*');
       }
 
-      // Poll Cloud ChatGPT Queue on every iteration (wait for ChatGPT on chatgpt.com to write and stream the full script!)
+      // Poll Cloud + Localhost ChatGPT Queue on every iteration (wait for ChatGPT on chatgpt.com to write and stream the full script!)
       const startWait = Date.now();
       let lastStreamedChatGptText = '';
       let stableStreamPolls = 0;
@@ -11994,7 +12000,7 @@ STRICT RULES:
         if (userEmail) {
           try {
             const pollPayload = { action: 'chatgpt_queue_poll', email: userEmail };
-            if (!chatGptActiveProgress) {
+            if (!chatGptActiveProgress && elapsedSec < 30) {
               pollPayload.expected_job = {
                 job_id: jobId,
                 email: userEmail,
@@ -12003,20 +12009,62 @@ STRICT RULES:
                 prompt: finalPromptForExt
               };
             }
-            const pRes = await fetch('/api/tts', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(pollPayload)
+            const pollBodyStr = JSON.stringify(pollPayload);
+            const [pResCloud, pResLocal] = await Promise.all([
+              fetch(`/api/tts?_cb=${Date.now()}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                cache: 'no-store',
+                body: pollBodyStr
+              }).catch(() => null),
+              fetch(`http://127.0.0.1:8080/api/tts?_cb=${Date.now()}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                cache: 'no-store',
+                body: pollBodyStr
+              }).catch(() => null)
+            ]);
+
+            const candidateJobs = [];
+            if (pResLocal && pResLocal.ok) {
+              try {
+                const lData = await pResLocal.json();
+                if (lData && lData.job) candidateJobs.push(lData.job);
+              } catch (e) {}
+            }
+            if (pResCloud && pResCloud.ok) {
+              try {
+                const cData = await pResCloud.json();
+                if (cData && cData.job) candidateJobs.push(cData.job);
+              } catch (e) {}
+            }
+
+            // Pick the most complete / freshest candidate job between Localhost & Cloud
+            candidateJobs.sort((a, b) => {
+              const aLen = String((a && (a.scriptText || a.script_text)) || '').length;
+              const bLen = String((b && (b.scriptText || b.script_text)) || '').length;
+              if (aLen !== bLen) return bLen - aLen;
+              return Number((b && b.updated_at) || 0) - Number((a && a.updated_at) || 0);
             });
-            if (pRes.ok) {
-              const pData = await pRes.json();
-              const cJob = pData && pData.job ? pData.job : null;
-              if (cJob && cJob.job_id === jobId) {
+
+            for (const cJob of candidateJobs) {
+              if (!cJob) continue;
+              const rawCurScript = String(cJob.scriptText || cJob.script_text || '').trim();
+              const isNonScriptNoise = /meri recommendation hai|Ye topic kyun best hai|Strong hook:|High curiosity:|Storyline potential:|Topic #\d\s*[—\-]/i.test(rawCurScript);
+              const curScript = isNonScriptNoise ? '' : rawCurScript;
+              const sameTopic = Boolean(
+                cJob.topic &&
+                topicTitle &&
+                String(cJob.topic).trim().toLowerCase() === String(topicTitle).trim().toLowerCase()
+              );
+              const isFreshCompleted = Boolean(
+                curScript.length > 200 &&
+                (sameTopic || ((Date.now() / 1000) - Number(cJob.updated_at || 0) < 180))
+              );
+
+              if (cJob.job_id === jobId || isFreshCompleted) {
                 const jobStatus = String(cJob.status || '').toLowerCase();
                 const jobStatusText = String(cJob.statusText || '');
-                const rawCurScript = String(cJob.scriptText || cJob.script_text || '').trim();
-                const isNonScriptNoise = /meri recommendation hai|Ye topic kyun best hai|Strong hook:|High curiosity:|Storyline potential:|Topic #\d\s*[—\-]/i.test(rawCurScript);
-                const curScript = isNonScriptNoise ? '' : rawCurScript;
 
                 if (jobStatus === 'running' || /writing|chatgpt is now/i.test(jobStatusText)) {
                   chatGptActiveProgress = true;
@@ -12041,7 +12089,7 @@ STRICT RULES:
                 const endsWithSentencePunct = /[.!?"'”’)\]]\s*$/.test(curScript);
                 if (
                   (jobStatus === 'completed' && curScript.length > 80) ||
-                  (jobStatus !== 'running' && curScript.length > 600 && endsWithSentencePunct && stableStreamPolls >= 14)
+                  (jobStatus !== 'running' && curScript.length > 600 && endsWithSentencePunct && stableStreamPolls >= 10)
                 ) {
                   chatGptResolvedScript = curScript;
                   break;
@@ -12547,32 +12595,50 @@ STRICT RULES:
       }
     });
 
-    // Background Cloud ChatGPT Script Receiver (only active on the tab that launched ChatGPT)
+    // Background Cloud & Localhost ChatGPT Script Receiver
     let lastImportedCloudChatGptHash = '';
     setInterval(async () => {
-      if (!window.thisTabLaunchedChatGpt || !currentUser || window.fullAutoPipelineActive || window.isIsolatedNewVideoTab) return;
+      if (!currentUser || window.fullAutoPipelineActive || window.isIsolatedNewVideoTab) return;
+      const ttsBox = document.getElementById('ttsScriptInput');
+      const isScriptBoxEmpty = !ttsBox || !String(ttsBox.value || '').trim();
+      if (!window.thisTabLaunchedChatGpt && !isScriptBoxEmpty) return;
       const userEmail = String(currentUser.email || currentUser.normName || '').trim().toLowerCase();
       if (!userEmail || !userEmail.includes('@')) return;
       try {
-        const pRes = await fetch('/api/tts', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'chatgpt_queue_poll', email: userEmail })
-        });
-        if (!pRes.ok) return;
-        const pData = await pRes.json();
-        const cJob = pData && pData.job ? pData.job : null;
+        const pollBodyStr = JSON.stringify({ action: 'chatgpt_queue_poll', email: userEmail });
+        const [pResCloud, pResLocal] = await Promise.all([
+          fetch(`/api/tts?_cb=${Date.now()}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            cache: 'no-store',
+            body: pollBodyStr
+          }).catch(() => null),
+          fetch(`http://127.0.0.1:8080/api/tts?_cb=${Date.now()}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            cache: 'no-store',
+            body: pollBodyStr
+          }).catch(() => null)
+        ]);
+        const jobs = [];
+        if (pResLocal && pResLocal.ok) {
+          try { const d = await pResLocal.json(); if (d && d.job) jobs.push(d.job); } catch (e) {}
+        }
+        if (pResCloud && pResCloud.ok) {
+          try { const d = await pResCloud.json(); if (d && d.job) jobs.push(d.job); } catch (e) {}
+        }
+        jobs.sort((a, b) => Number((b && b.updated_at) || 0) - Number((a && a.updated_at) || 0));
+        const cJob = jobs[0] || null;
         if (!cJob) return;
         const curScript = String(cJob.scriptText || cJob.script_text || '').trim();
         if (/meri recommendation hai|Ye topic kyun best hai|Strong hook:|High curiosity:|Storyline potential:|Topic #\d\s*[—\-]/i.test(curScript)) {
           return;
         }
         const updatedTs = Number(cJob.updated_at || 0);
-        const isRecent = (Date.now() / 1000) - updatedTs < 120;
-        const hashKey = `${updatedTs}_${curScript.length}`;
+        const isRecent = (Date.now() / 1000) - updatedTs < 300;
+        const hashKey = `${cJob.job_id || ''}_${curScript.length}`;
         if (cJob.status === 'completed' && curScript.length > 80 && isRecent && hashKey !== lastImportedCloudChatGptHash) {
           lastImportedCloudChatGptHash = hashKey;
-          const ttsBox = document.getElementById('ttsScriptInput');
           const prBox = document.getElementById('promptScriptInput');
           if (ttsBox) ttsBox.value = curScript;
           if (prBox) prBox.value = curScript;
