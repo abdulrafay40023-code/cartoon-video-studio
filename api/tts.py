@@ -2793,6 +2793,17 @@ def _build_bot_job_candidate_slugs(user_email: str, client_ip: str = "") -> list
     return slugs
 
 
+_TEXTDB_LAST_FETCH = {}
+_TEXTDB_MEM_CACHE = {}
+
+
+def _get_textdb_key(folder_prefix: str, slug: str) -> str:
+    if folder_prefix != "chatgpt_jobs" or not slug or "__ip_" in slug:
+        return ""
+    clean = re.sub(r"[^a-zA-Z0-9\-]+", "-", f"vs-{folder_prefix}-{slug}").strip("-").lower()
+    return clean[:80]
+
+
 def _save_single_cloud_json(folder_prefix: str, slug: str, payload: dict):
     if not slug:
         return
@@ -2803,6 +2814,22 @@ def _save_single_cloud_json(folder_prefix: str, slug: str, payload: dict):
             f.write(raw.decode("utf-8"))
     except Exception:
         pass
+
+    tdb_key = _get_textdb_key(folder_prefix, slug)
+    if tdb_key:
+        _TEXTDB_MEM_CACHE[tdb_key] = payload
+        _TEXTDB_LAST_FETCH[tdb_key] = time.time()
+        try:
+            tdb_req = urllib.request.Request(
+                f"https://textdb.dev/api/data/{tdb_key}",
+                data=raw,
+                headers={"Content-Type": "text/plain", "User-Agent": "VideoStudio/1.0"},
+                method="POST",
+            )
+            urllib.request.urlopen(tdb_req, timeout=3.5).close()
+        except Exception:
+            pass
+
     if SUPABASE_EGRESS_RESTRICTED:
         return
 
@@ -2854,6 +2881,38 @@ def _load_single_cloud_json(folder_prefix: str, slug: str) -> dict:
                     best_ts = float(d.get("updated_at") or 0.0)
         except Exception:
             pass
+
+    tdb_key = _get_textdb_key(folder_prefix, slug)
+    if tdb_key:
+        now_ts = time.time()
+        if not best or (now_ts - _TEXTDB_LAST_FETCH.get(tdb_key, 0.0)) >= 1.4:
+            _TEXTDB_LAST_FETCH[tdb_key] = now_ts
+            try:
+                tdb_req = urllib.request.Request(
+                    f"https://textdb.dev/api/data/{tdb_key}",
+                    headers={"User-Agent": "VideoStudio/1.0"},
+                    method="GET",
+                )
+                raw_tdb = urllib.request.urlopen(tdb_req, timeout=3.5).read().decode("utf-8").strip()
+                if raw_tdb and raw_tdb.startswith("{"):
+                    d_tdb = json.loads(raw_tdb)
+                    if isinstance(d_tdb, dict):
+                        _TEXTDB_MEM_CACHE[tdb_key] = d_tdb
+            except Exception:
+                pass
+        cached_tdb = _TEXTDB_MEM_CACHE.get(tdb_key)
+        if isinstance(cached_tdb, dict) and cached_tdb:
+            tdb_ts = float(cached_tdb.get("updated_at") or 0.0)
+            tdb_script = str(cached_tdb.get("script_text") or cached_tdb.get("scriptText") or "").strip()
+            best_script = str(best.get("script_text") or best.get("scriptText") or "").strip() if isinstance(best, dict) else ""
+            if tdb_ts > best_ts or (len(tdb_script) > 200 and not best_script and cached_tdb.get("job_id") == best.get("job_id")):
+                best = cached_tdb
+                best_ts = tdb_ts
+                try:
+                    with open(tmp_path, "w", encoding="utf-8") as f:
+                        json.dump(best, f, ensure_ascii=False)
+                except Exception:
+                    pass
 
     # Local/Cloud single json read complete
     return best
@@ -4281,6 +4340,56 @@ class handler(BaseHTTPRequestHandler):
                 yt_research = fetch_youtube_api_viral_research(query_keywords=topic, channel_or_video_ref=youtube_ref)
                 if yt_research:
                     chatgpt_prompt += f"\n\n=== LIVE YOUTUBE DATA API v3 VIRAL RESEARCH & REFERENCE CHANNEL ANALYSIS ===\n{yt_research}\nModel the script's hook, pacing, and high-retention storytelling directly on what works best in these viral YouTube videos!"
+
+                prev_doc = load_chatgpt_job_cloud(user_email, client_ip=client_ip)
+                prev_script = ""
+                prev_topic = ""
+                prev_ts = 0.0
+                if isinstance(prev_doc, dict):
+                    prev_script = str(prev_doc.get("script_text") or prev_doc.get("scriptText") or prev_doc.get("last_completed_script") or "").strip()
+                    prev_topic = str(prev_doc.get("topic") or prev_doc.get("last_completed_topic") or "").strip()
+                    prev_ts = float(prev_doc.get("updated_at") or 0.0)
+
+                already_done_for_topic = bool(
+                    len(prev_script) > 200
+                    and (time.time() - prev_ts) < 3600
+                    and topic
+                    and (
+                        (prev_topic and prev_topic.lower() == topic.lower())
+                        or _does_script_match_topic_py(prev_script, topic)
+                    )
+                )
+
+                if already_done_for_topic:
+                    wc = len(prev_script.split())
+                    job_doc = {
+                        "job_id": job_id,
+                        "email": user_email,
+                        "owner_email": user_email,
+                        "client_ip": client_ip,
+                        "active": False,
+                        "status": "completed",
+                        "topic": topic,
+                        "duration_mins": duration_mins,
+                        "chatgpt_prompt": chatgpt_prompt,
+                        "prompt": chatgpt_prompt,
+                        "script_text": prev_script,
+                        "scriptText": prev_script,
+                        "last_completed_script": prev_script,
+                        "last_completed_topic": topic,
+                        "statusText": f"✅ ChatGPT Script Ready ({wc} words)!",
+                        "started_at": time.time(),
+                        "updated_at": time.time(),
+                    }
+                    save_chatgpt_job_cloud(user_email, job_doc, client_ip=client_ip)
+                    self._send_json(200, {
+                        "ok": True,
+                        "job_id": job_id,
+                        "enriched_prompt": chatgpt_prompt,
+                        "already_completed_script": prev_script,
+                    })
+                    return
+
                 job_doc = {
                     "job_id": job_id,
                     "email": user_email,
@@ -4294,6 +4403,8 @@ class handler(BaseHTTPRequestHandler):
                     "prompt": chatgpt_prompt,
                     "script_text": "",
                     "scriptText": "",
+                    "last_completed_script": prev_script if len(prev_script) > 200 else "",
+                    "last_completed_topic": prev_topic if len(prev_script) > 200 else "",
                     "statusText": f"⏳ Sending topic \"{topic[:55]}\" to ChatGPT...",
                     "started_at": time.time(),
                     "updated_at": time.time(),
@@ -4353,12 +4464,18 @@ class handler(BaseHTTPRequestHandler):
                     pr_txt = str(exp_job.get("chatgpt_prompt") or exp_job.get("prompt") or "").strip()
                     tp_txt = str(exp_job.get("topic") or "").strip()
                     if not isinstance(job_doc, dict) or job_doc.get("job_id") != exp_jid:
-                        existing_script = str((job_doc.get("script_text") or job_doc.get("scriptText") or "") if isinstance(job_doc, dict) else "").strip()
+                        existing_script = str((job_doc.get("script_text") or job_doc.get("scriptText") or job_doc.get("last_completed_script") or "") if isinstance(job_doc, dict) else "").strip()
+                        existing_topic = str((job_doc.get("topic") or job_doc.get("last_completed_topic") or "") if isinstance(job_doc, dict) else "").strip()
                         existing_ts = float(job_doc.get("updated_at") or 0.0) if isinstance(job_doc, dict) else 0.0
-                        if len(existing_script) > 200 and (time.time() - existing_ts) < 900 and _does_script_match_topic_py(existing_script, tp_txt):
+                        if len(existing_script) > 200 and (time.time() - existing_ts) < 3600 and (
+                            (existing_topic and tp_txt and existing_topic.lower() == tp_txt.lower())
+                            or _does_script_match_topic_py(existing_script, tp_txt)
+                        ):
                             # This container ALREADY has the completed script for this exact topic! Adopt exp_jid without wiping the script!
                             job_doc["job_id"] = exp_jid
                             job_doc["topic"] = tp_txt
+                            job_doc["script_text"] = existing_script
+                            job_doc["scriptText"] = existing_script
                             job_doc["status"] = "completed"
                             job_doc["active"] = False
                             save_chatgpt_job_cloud(user_email, job_doc, client_ip=client_ip)
@@ -4377,6 +4494,8 @@ class handler(BaseHTTPRequestHandler):
                                 "prompt": pr_txt,
                                 "script_text": "",
                                 "scriptText": "",
+                                "last_completed_script": existing_script if len(existing_script) > 200 else "",
+                                "last_completed_topic": existing_topic if len(existing_script) > 200 else "",
                                 "statusText": f"⏳ Sending topic \"{tp_txt[:55]}\" to ChatGPT...",
                                 "started_at": time.time(),
                                 "updated_at": time.time(),
@@ -4407,6 +4526,9 @@ class handler(BaseHTTPRequestHandler):
                 if "script_text" in data or "scriptText" in data or script_out or status_val == "completed":
                     job_doc["script_text"] = script_out
                     job_doc["scriptText"] = script_out
+                    if len(script_out) > 200:
+                        job_doc["last_completed_script"] = script_out
+                        job_doc["last_completed_topic"] = str(job_doc.get("topic") or "")
                 job_doc["status"] = status_val
                 job_doc["active"] = (status_val in ("queued", "running"))
                 if data.get("statusText"):
@@ -4422,6 +4544,11 @@ class handler(BaseHTTPRequestHandler):
                 if user_email or client_ip:
                     job_doc = load_chatgpt_job_cloud(user_email, client_ip=client_ip)
                     if job_doc:
+                        prev_sc = str(job_doc.get("script_text") or job_doc.get("scriptText") or job_doc.get("last_completed_script") or "").strip()
+                        prev_tp = str(job_doc.get("topic") or job_doc.get("last_completed_topic") or "").strip()
+                        if len(prev_sc) > 200:
+                            job_doc["last_completed_script"] = prev_sc
+                            job_doc["last_completed_topic"] = prev_tp
                         job_doc["active"] = False
                         if action == "chatgpt_queue_clean" or bool(data.get("clean", False)):
                             job_doc["status"] = "cleaned"

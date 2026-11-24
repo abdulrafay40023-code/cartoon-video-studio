@@ -11937,6 +11937,9 @@ STRICT RULES:
 
       window.thisTabLaunchedChatGpt = true;
       let finalPromptForExt = chatgptPrompt;
+      const tdbSlug = String(userEmail || '').replace(/[^a-zA-Z0-9]+/g, '-').replace(/^-+|-+$/g, '').toLowerCase();
+      const tdbUrl = tdbSlug ? `https://textdb.dev/api/data/vs-chatgpt-jobs-${tdbSlug}` : '';
+
       if (userEmail) {
         const startPayloadStr = JSON.stringify({
           action: 'chatgpt_queue_start',
@@ -11963,11 +11966,18 @@ STRICT RULES:
             if (qData && qData.enriched_prompt) {
               finalPromptForExt = qData.enriched_prompt;
             }
+            if (qData && qData.already_completed_script && String(qData.already_completed_script).trim().length > 200) {
+              chatGptResolvedScript = String(qData.already_completed_script).trim();
+              document.getElementById('ttsScriptInput').value = chatGptResolvedScript;
+              document.getElementById('promptScriptInput').value = chatGptResolvedScript;
+              autoResizeScriptBoxes();
+              saveUserDraftState();
+            }
           }
         } catch (e) {}
       }
 
-      if (isExtInstalled) {
+      if (!chatGptResolvedScript && isExtInstalled) {
         window.postMessage({
           source: 'VIDEO_STUDIO_PAGE',
           type: 'START_CHATGPT_SCRIPT_JOB',
@@ -11980,7 +11990,7 @@ STRICT RULES:
         }, '*');
       }
 
-      // Poll Cloud + Localhost ChatGPT Queue on every iteration (wait for ChatGPT on chatgpt.com to write and stream the full script!)
+      // Poll Cloud + Shared TextDB + Localhost ChatGPT Queue on every iteration (wait for ChatGPT on chatgpt.com to write and stream the full script!)
       const startWait = Date.now();
       let lastStreamedChatGptText = '';
       let stableStreamPolls = 0;
@@ -12010,7 +12020,7 @@ STRICT RULES:
               };
             }
             const pollBodyStr = JSON.stringify(pollPayload);
-            const [pResCloud, pResLocal] = await Promise.all([
+            const [pResCloud, pResLocal, pResTdb] = await Promise.all([
               fetch(`/api/tts?_cb=${Date.now()}`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -12022,10 +12032,22 @@ STRICT RULES:
                 headers: { 'Content-Type': 'application/json' },
                 cache: 'no-store',
                 body: pollBodyStr
-              }).catch(() => null)
+              }).catch(() => null),
+              tdbUrl
+                ? fetch(tdbUrl, { method: 'GET', cache: 'no-store' }).catch(() => null)
+                : Promise.resolve(null)
             ]);
 
             const candidateJobs = [];
+            if (pResTdb && pResTdb.ok) {
+              try {
+                const tTxt = await pResTdb.text();
+                if (tTxt && tTxt.trim().startsWith('{')) {
+                  const tJob = JSON.parse(tTxt);
+                  if (tJob && typeof tJob === 'object') candidateJobs.push(tJob);
+                }
+              } catch (e) {}
+            }
             if (pResLocal && pResLocal.ok) {
               try {
                 const lData = await pResLocal.json();
@@ -12595,7 +12617,7 @@ STRICT RULES:
       }
     });
 
-    // Background Cloud & Localhost ChatGPT Script Receiver
+    // Background Cloud, Shared TextDB & Localhost ChatGPT Script Receiver
     let lastImportedCloudChatGptHash = '';
     setInterval(async () => {
       if (!currentUser || window.fullAutoPipelineActive || window.isIsolatedNewVideoTab) return;
@@ -12604,9 +12626,11 @@ STRICT RULES:
       if (!window.thisTabLaunchedChatGpt && !isScriptBoxEmpty) return;
       const userEmail = String(currentUser.email || currentUser.normName || '').trim().toLowerCase();
       if (!userEmail || !userEmail.includes('@')) return;
+      const tdbSlug = userEmail.replace(/[^a-zA-Z0-9]+/g, '-').replace(/^-+|-+$/g, '').toLowerCase();
+      const tdbUrl = tdbSlug ? `https://textdb.dev/api/data/vs-chatgpt-jobs-${tdbSlug}` : '';
       try {
         const pollBodyStr = JSON.stringify({ action: 'chatgpt_queue_poll', email: userEmail });
-        const [pResCloud, pResLocal] = await Promise.all([
+        const [pResCloud, pResLocal, pResTdb] = await Promise.all([
           fetch(`/api/tts?_cb=${Date.now()}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -12618,32 +12642,53 @@ STRICT RULES:
             headers: { 'Content-Type': 'application/json' },
             cache: 'no-store',
             body: pollBodyStr
-          }).catch(() => null)
+          }).catch(() => null),
+          tdbUrl
+            ? fetch(tdbUrl, { method: 'GET', cache: 'no-store' }).catch(() => null)
+            : Promise.resolve(null)
         ]);
         const jobs = [];
+        if (pResTdb && pResTdb.ok) {
+          try {
+            const tTxt = await pResTdb.text();
+            if (tTxt && tTxt.trim().startsWith('{')) {
+              const tJob = JSON.parse(tTxt);
+              if (tJob && typeof tJob === 'object') jobs.push(tJob);
+            }
+          } catch (e) {}
+        }
         if (pResLocal && pResLocal.ok) {
           try { const d = await pResLocal.json(); if (d && d.job) jobs.push(d.job); } catch (e) {}
         }
         if (pResCloud && pResCloud.ok) {
           try { const d = await pResCloud.json(); if (d && d.job) jobs.push(d.job); } catch (e) {}
         }
-        jobs.sort((a, b) => Number((b && b.updated_at) || 0) - Number((a && a.updated_at) || 0));
+        jobs.sort((a, b) => {
+          const aLen = String((a && (a.scriptText || a.script_text || a.last_completed_script)) || '').length;
+          const bLen = String((b && (b.scriptText || b.script_text || b.last_completed_script)) || '').length;
+          if (aLen !== bLen) return bLen - aLen;
+          return Number((b && b.updated_at) || 0) - Number((a && a.updated_at) || 0);
+        });
         const cJob = jobs[0] || null;
         if (!cJob) return;
-        const curScript = String(cJob.scriptText || cJob.script_text || '').trim();
+        const curScript = String(cJob.scriptText || cJob.script_text || (isScriptBoxEmpty ? cJob.last_completed_script : '') || '').trim();
         if (/meri recommendation hai|Ye topic kyun best hai|Strong hook:|High curiosity:|Storyline potential:|Topic #\d\s*[—\-]/i.test(curScript)) {
           return;
         }
         const updatedTs = Number(cJob.updated_at || 0);
-        const isRecent = (Date.now() / 1000) - updatedTs < 300;
+        const isRecent = (Date.now() / 1000) - updatedTs < (isScriptBoxEmpty ? 3600 : 300);
         const hashKey = `${cJob.job_id || ''}_${curScript.length}`;
-        if (cJob.status === 'completed' && curScript.length > 80 && isRecent && hashKey !== lastImportedCloudChatGptHash) {
+        if ((cJob.status === 'completed' || (isScriptBoxEmpty && curScript.length > 200)) && curScript.length > 80 && isRecent && hashKey !== lastImportedCloudChatGptHash) {
           lastImportedCloudChatGptHash = hashKey;
           const prBox = document.getElementById('promptScriptInput');
           if (ttsBox) ttsBox.value = curScript;
           if (prBox) prBox.value = curScript;
           autoResizeScriptBoxes();
           saveUserDraftState();
+          const stEl = document.getElementById('fullAutoPipelineStageText');
+          if (stEl && String(stEl.textContent || '').includes('ChatGPT (chatgpt.com) se response nahi aaya')) {
+            updateFullAutoPipelineUI(20, '✅ ChatGPT Script Received & Auto-Loaded! Ab "Make Video on Selected Topic" dabayein!', true);
+          }
         }
       } catch (e) {}
     }, 3000);
