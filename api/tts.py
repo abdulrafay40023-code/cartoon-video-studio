@@ -11,6 +11,7 @@ import time
 import urllib.request
 import urllib.error
 import wave
+import zlib
 try:
     import edge_tts
 except ImportError:
@@ -2820,9 +2821,20 @@ def _save_single_cloud_json(folder_prefix: str, slug: str, payload: dict):
         _TEXTDB_MEM_CACHE[tdb_key] = payload
         _TEXTDB_LAST_FETCH[tdb_key] = time.time()
         try:
+            slim = dict(payload)
+            sc_main = str(slim.get("script_text") or slim.get("scriptText") or "").strip()
+            pr_main = str(slim.get("chatgpt_prompt") or slim.get("prompt") or "").strip()
+            slim["script_text"] = sc_main
+            slim.pop("scriptText", None)
+            slim["prompt"] = pr_main
+            slim.pop("chatgpt_prompt", None)
+            if sc_main and slim.get("last_completed_script") == sc_main:
+                slim.pop("last_completed_script", None)
+            slim_bytes = json.dumps(slim, ensure_ascii=False).encode("utf-8")
+            comp_data = b"ZLIB:" + base64.b64encode(zlib.compress(slim_bytes, level=9))
             tdb_req = urllib.request.Request(
                 f"https://textdb.dev/api/data/{tdb_key}",
-                data=raw,
+                data=comp_data,
                 headers={"Content-Type": "text/plain", "User-Agent": "VideoStudio/1.0"},
                 method="POST",
             )
@@ -2893,10 +2905,24 @@ def _load_single_cloud_json(folder_prefix: str, slug: str) -> dict:
                     headers={"User-Agent": "VideoStudio/1.0"},
                     method="GET",
                 )
-                raw_tdb = urllib.request.urlopen(tdb_req, timeout=3.5).read().decode("utf-8").strip()
+                raw_tdb_bytes = urllib.request.urlopen(tdb_req, timeout=3.5).read().strip()
+                raw_tdb = ""
+                if raw_tdb_bytes.startswith(b"ZLIB:"):
+                    raw_tdb = zlib.decompress(base64.b64decode(raw_tdb_bytes[5:])).decode("utf-8").strip()
+                else:
+                    raw_tdb = raw_tdb_bytes.decode("utf-8", errors="ignore").strip()
                 if raw_tdb and raw_tdb.startswith("{"):
                     d_tdb = json.loads(raw_tdb)
                     if isinstance(d_tdb, dict):
+                        sc_m = str(d_tdb.get("script_text") or d_tdb.get("scriptText") or "").strip()
+                        pr_m = str(d_tdb.get("prompt") or d_tdb.get("chatgpt_prompt") or "").strip()
+                        d_tdb["script_text"] = sc_m
+                        d_tdb["scriptText"] = sc_m
+                        d_tdb["prompt"] = pr_m
+                        d_tdb["chatgpt_prompt"] = pr_m
+                        if sc_m and not d_tdb.get("last_completed_script"):
+                            d_tdb["last_completed_script"] = sc_m
+                            d_tdb["last_completed_topic"] = str(d_tdb.get("topic") or "")
                         _TEXTDB_MEM_CACHE[tdb_key] = d_tdb
             except Exception:
                 pass
