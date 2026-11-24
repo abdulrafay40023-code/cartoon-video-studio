@@ -2940,15 +2940,16 @@ def _load_single_cloud_json(folder_prefix: str, slug: str) -> dict:
                 if raw_tdb and raw_tdb.startswith("{"):
                     d_tdb = json.loads(raw_tdb)
                     if isinstance(d_tdb, dict):
-                        sc_m = str(d_tdb.get("script_text") or d_tdb.get("scriptText") or "").strip()
-                        pr_m = str(d_tdb.get("prompt") or d_tdb.get("chatgpt_prompt") or "").strip()
-                        d_tdb["script_text"] = sc_m
-                        d_tdb["scriptText"] = sc_m
-                        d_tdb["prompt"] = pr_m
-                        d_tdb["chatgpt_prompt"] = pr_m
-                        if sc_m and not d_tdb.get("last_completed_script"):
-                            d_tdb["last_completed_script"] = sc_m
-                            d_tdb["last_completed_topic"] = str(d_tdb.get("topic") or "")
+                        if folder_prefix == "chatgpt_jobs":
+                            sc_m = str(d_tdb.get("script_text") or d_tdb.get("scriptText") or "").strip()
+                            pr_m = str(d_tdb.get("prompt") or d_tdb.get("chatgpt_prompt") or "").strip()
+                            d_tdb["script_text"] = sc_m
+                            d_tdb["scriptText"] = sc_m
+                            d_tdb["prompt"] = pr_m
+                            d_tdb["chatgpt_prompt"] = pr_m
+                            if sc_m and not d_tdb.get("last_completed_script"):
+                                d_tdb["last_completed_script"] = sc_m
+                                d_tdb["last_completed_topic"] = str(d_tdb.get("topic") or "")
                         _TEXTDB_MEM_CACHE[tdb_key] = d_tdb
             except Exception:
                 pass
@@ -5209,22 +5210,14 @@ class handler(BaseHTTPRequestHandler):
                     if not job_doc.get("prompts") or len(inc_prompts) > len(job_doc.get("prompts") or []):
                         job_doc["prompts"] = inc_prompts
                 if data.get("folderName"):
-                    job_doc["folderName"] = str(data.get("folderName")).strip()
+                    fn_sync = str(data.get("folderName")).strip()
+                    if fn_sync.lower() == "office 2" and not job_doc.get("savedSceneNums"):
+                        fn_sync = "office_2"
+                    job_doc["folderName"] = fn_sync
                 if data.get("fileNameFormat"):
                     job_doc["fileNameFormat"] = str(data.get("fileNameFormat")).strip()
                 if data.get("grandTotal"):
                     job_doc["grandTotal"] = int(data.get("grandTotal"))
-                merged_saved = set()
-                for src_list in (job_doc.get("savedSceneNums"), data.get("savedSceneNums")):
-                    if isinstance(src_list, list):
-                        for sn in src_list:
-                            try:
-                                if int(sn) > 0:
-                                    merged_saved.add(int(sn))
-                            except Exception:
-                                pass
-                if merged_saved:
-                    job_doc["savedSceneNums"] = sorted(merged_saved)
                 job_doc["updated_at"] = time.time()
                 save_bot_job_cloud(user_email, job_doc, client_ip=client_ip)
                 self._send_json(200, {"ok": True, "savedSceneNums": job_doc.get("savedSceneNums", [])})
