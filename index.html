@@ -5131,6 +5131,17 @@
               fBadge.style.display = 'inline-block';
               fBadge.textContent = `✅ ${folderName} (${selectedScenes.length} Images • Sequence: ${firstImg} ➔ ${lastImg})`;
             }
+          } else {
+            selectedScenes = [];
+            clearPersistentSavedScenesForFolder('office 2');
+            clearPersistentSavedScenesForFolder('office_2');
+            const fBox = document.getElementById('folderBox');
+            const fBadge = document.getElementById('folderBadge');
+            if (fBox) fBox.classList.remove('done');
+            if (fBadge) {
+              fBadge.style.display = 'none';
+              fBadge.textContent = '';
+            }
           }
           if (ws.videoBlob && ws.videoMeta) {
             applyVideoUI(ws.videoBlob, ws.videoMeta);
@@ -11226,35 +11237,33 @@ If this video helped you, subscribe to our channel and share it with a friend wh
       handleBotFolderConfigChange();
 
       const savedForFolderSet = getPersistentSavedScenesForFolder(cleanFolder);
-      const totalAlreadySaved = Math.max(savedForFolderSet.size, selectedScenes.length);
+      const loadedOnDiskCount = Array.isArray(selectedScenes) ? selectedScenes.length : 0;
 
-      // Automatically resume missing scenes if we already have partial saved scenes for this project/folder!
+      // Only resume missing scenes if the user explicitly loaded partial images from disk into selectedScenes (or passed resumeOnlyMissing === true)!
       const shouldResumeMissing = (resumeOnlyMissing === true) || (
         resumeOnlyMissing !== false &&
-        totalAlreadySaved > 0 &&
-        totalAlreadySaved < allPromptsList.length
+        loadedOnDiskCount > 0 &&
+        loadedOnDiskCount < allPromptsList.length
       );
+      const totalAlreadySaved = shouldResumeMissing ? Math.max(savedForFolderSet.size, loadedOnDiskCount) : 0;
 
       if (!shouldResumeMissing) {
-        if (checkAndShowDuplicateFolderWarning() && !window.fullAutoPipelineActive) {
-          const curF = activeNicheConfig.save_folder_name || 'VideoStudio_Scenes';
-          const curFmt = activeNicheConfig.file_name_format || '1';
-          const map = getUsedFolderFormatsMap();
-          const usedFmts = Array.isArray(map[curF.toLowerCase()]) ? map[curF.toLowerCase()] : [];
-          const nextUnused = ['1', 'image 1', 'i 1'].find(f => !usedFmts.includes(f));
-          if (nextUnused) {
-            const wantSwitch = confirm(
-              `⚠️ Yeh Folder ("${curF}") aur Format ("${curFmt}.png") pichli video mein use ho chuka hai!\n\n` +
-              `Kya aap chahte hain ke nayi video ke liye Format auto-change kar ke "${nextUnused}.png" kar diya jaye taake purani images mix na hon?\n\n` +
-              `(OK = Format "${nextUnused}.png" karein • Cancel = Isi "${curFmt}.png" mein continue karein)`
-            );
-            if (wantSwitch) {
-              window.quickSwitchFolderNamingFormat(nextUnused);
-            }
-          } else {
-            alert(`⚠️ Note: Folder "${curF}" mein teeno formats (1, image 1, i 1) pehle use ho chuke hain. Behtar hai ke "📁 Pick Folder from PC" se naya folder select kar lein!`);
-          }
+        selectedScenes = [];
+        importedCloudBotScenes.clear();
+        ensuredDiskSaveScenes.clear();
+        clearPersistentSavedScenesForFolder(cleanFolder);
+        clearPersistentSavedScenesForFolder('office 2');
+        clearPersistentSavedScenesForFolder('office_2');
+        savedForFolderSet.clear();
+        const fBox = document.getElementById('folderBox');
+        const fBadge = document.getElementById('folderBadge');
+        if (fBox) fBox.classList.remove('done');
+        if (fBadge) {
+          fBadge.style.display = 'none';
+          fBadge.textContent = '';
         }
+        const warnBox = document.getElementById('botDuplicateFolderWarnBanner');
+        if (warnBox) warnBox.style.display = 'none';
       }
 
       let promptsList = shouldResumeMissing ? buildPrioritizedMissingPromptsQueue(allPromptsList, cleanFolder) : allPromptsList;
@@ -11270,14 +11279,6 @@ If this video helped you, subscribe to our channel and share it with a friend wh
 
       const jobId = 'job_' + Date.now();
       setThisTabBotJobId(jobId);
-
-      if (!shouldResumeMissing) {
-        selectedScenes = [];
-        importedCloudBotScenes.clear();
-        ensuredDiskSaveScenes.clear();
-        clearPersistentSavedScenesForFolder(cleanFolder);
-        savedForFolderSet.clear();
-      }
       folderName = cleanFolder;
 
       const firstSceneNum = (promptsList[0] && promptsList[0].sceneNum) || 1;

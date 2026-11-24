@@ -2799,7 +2799,7 @@ _TEXTDB_MEM_CACHE = {}
 
 
 def _get_textdb_key(folder_prefix: str, slug: str) -> str:
-    if folder_prefix != "chatgpt_jobs" or not slug or "__ip_" in slug:
+    if folder_prefix not in ("chatgpt_jobs", "bot_jobs") or not slug or "__ip_" in slug:
         return ""
     clean = re.sub(r"[^a-zA-Z0-9\-]+", "-", f"vs-{folder_prefix}-{slug}").strip("-").lower()
     return clean[:80]
@@ -2822,14 +2822,40 @@ def _save_single_cloud_json(folder_prefix: str, slug: str, payload: dict):
         _TEXTDB_LAST_FETCH[tdb_key] = time.time()
         try:
             slim = dict(payload)
-            sc_main = str(slim.get("script_text") or slim.get("scriptText") or "").strip()
-            pr_main = str(slim.get("chatgpt_prompt") or slim.get("prompt") or "").strip()
-            slim["script_text"] = sc_main
-            slim.pop("scriptText", None)
-            slim["prompt"] = pr_main
-            slim.pop("chatgpt_prompt", None)
-            if sc_main and slim.get("last_completed_script") == sc_main:
-                slim.pop("last_completed_script", None)
+            if folder_prefix == "chatgpt_jobs":
+                sc_main = str(slim.get("script_text") or slim.get("scriptText") or "").strip()
+                pr_main = str(slim.get("chatgpt_prompt") or slim.get("prompt") or "").strip()
+                slim["script_text"] = sc_main
+                slim.pop("scriptText", None)
+                slim["prompt"] = pr_main
+                slim.pop("chatgpt_prompt", None)
+                if sc_main and slim.get("last_completed_script") == sc_main:
+                    slim.pop("last_completed_script", None)
+            elif folder_prefix == "bot_jobs":
+                slim.pop("allPrompts", None)
+                slim.pop("refImageDataUrl", None)
+                slim.pop("generated_images", None)
+                raw_pr = slim.get("prompts")
+                if isinstance(raw_pr, list):
+                    slim_pr = []
+                    for idx_p, item_p in enumerate(raw_pr):
+                        if not isinstance(item_p, dict):
+                            continue
+                        sn_p = int(item_p.get("sceneNum") or (idx_p + 1))
+                        sc_p = str(item_p.get("scriptText") or "").strip()
+                        pt_p = str(item_p.get("promptText") or "").strip()
+                        fb_p = str(item_p.get("fullBlockText") or "").strip()
+                        if not pt_p and "Prompt:" in fb_p:
+                            pt_p = fb_p.split("Prompt:", 1)[1].strip()
+                        if not sc_p and "Script:" in fb_p:
+                            sc_part = fb_p.split("Script:", 1)[1]
+                            sc_p = sc_part.split("Prompt:", 1)[0].strip() if "Prompt:" in sc_part else sc_part.strip()
+                        slim_pr.append({
+                            "sceneNum": sn_p,
+                            "scriptText": sc_p,
+                            "promptText": pt_p,
+                        })
+                    slim["prompts"] = slim_pr
             slim_bytes = json.dumps(slim, ensure_ascii=False).encode("utf-8")
             comp_data = b"ZLIB:" + base64.b64encode(zlib.compress(slim_bytes, level=9))
             tdb_req = urllib.request.Request(
@@ -5134,6 +5160,8 @@ class handler(BaseHTTPRequestHandler):
                             ref_img_url = str(prev_job.get("refImageUrl") or "").strip()
 
                 grand_total = int(data.get("grandTotal") or len(prompts_list) or 1)
+                if folder_name.strip().lower() == "office 2" and not preserved_saved_nums:
+                    folder_name = "office_2"
                 job_doc = {
                     "job_id": job_id,
                     "email": user_email,
@@ -5219,6 +5247,9 @@ class handler(BaseHTTPRequestHandler):
                     if not isinstance(job_doc, dict) or job_doc.get("job_id") != exp_bot.get("job_id"):
                         p_list = exp_bot.get("prompts") or []
                         g_tot = int(exp_bot.get("grandTotal") or len(p_list) or 1)
+                        exp_folder = str(exp_bot.get("folderName") or "VideoStudio_Scenes").strip()
+                        if exp_folder.lower() == "office 2":
+                            exp_folder = "office_2"
                         job_doc = {
                             "job_id": str(exp_bot.get("job_id")),
                             "email": user_email,
@@ -5227,7 +5258,7 @@ class handler(BaseHTTPRequestHandler):
                             "active": True,
                             "status": "queued",
                             "statusText": f"🚀 Waiting for Gemini Browser Extension ({user_email}) to pick up {len(p_list)} prompts...",
-                            "folderName": str(exp_bot.get("folderName") or "VideoStudio_Scenes").strip(),
+                            "folderName": exp_folder,
                             "fileNameFormat": str(exp_bot.get("fileNameFormat") or "1").strip(),
                             "prompts": p_list,
                             "attachRefImage": True,
@@ -5289,6 +5320,29 @@ class handler(BaseHTTPRequestHandler):
                         "savedSceneNums": [],
                     }
 
+                scene_num = data.get("sceneNum")
+                cur_saved_list = job_doc.get("savedSceneNums") if isinstance(job_doc.get("savedSceneNums"), list) else []
+                inc_saved_list = data.get("savedSceneNums") if isinstance(data.get("savedSceneNums"), list) else []
+                job_tot = int(job_doc.get("grandTotal") or job_doc.get("total") or 0)
+
+                # Guard against stale savedScenesByFolder dump from a previous video (e.g. 189 old images dumped onto a fresh 184-image job without generating a single scene)
+                is_stale_bulk_dump = bool(
+                    scene_num is None
+                    and len(inc_saved_list) > len(cur_saved_list) + 3
+                    and (
+                        len(cur_saved_list) == 0
+                        or (job_tot > 0 and any(int(x) > job_tot for x in inc_saved_list if str(x).isdigit()))
+                    )
+                )
+                if is_stale_bulk_dump:
+                    self._send_json(200, {
+                        "ok": True,
+                        "ignored_stale_dump": True,
+                        "generated_images": job_doc.get("generated_images", {}),
+                        "savedSceneNums": cur_saved_list,
+                    })
+                    return
+
                 if "currentIndex" in data and data["currentIndex"] is not None:
                     job_doc["currentIndex"] = int(data["currentIndex"])
                 if "status" in data and data["status"]:
@@ -5305,7 +5359,7 @@ class handler(BaseHTTPRequestHandler):
                     job_doc["active"] = True
 
                 merged_saved = set()
-                for src_list in (job_doc.get("savedSceneNums"), data.get("savedSceneNums")):
+                for src_list in (cur_saved_list, inc_saved_list):
                     if isinstance(src_list, list):
                         for sn in src_list:
                             try:
@@ -5313,7 +5367,6 @@ class handler(BaseHTTPRequestHandler):
                                     merged_saved.add(int(sn))
                             except Exception:
                                 pass
-                scene_num = data.get("sceneNum")
                 if scene_num is not None:
                     try:
                         if int(scene_num) > 0:
